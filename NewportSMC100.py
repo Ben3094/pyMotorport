@@ -62,6 +62,9 @@ class Controller(object):
 		self.Read = self.MainController.Read   
 		self.read_error = self.MainController.read_error
 
+		if self.State[-2:] in ['0A', '0B', '0C', '0D', '0E', '0F', '10', '1F']:
+			self.GoHome(True)
+
 	@property
 	def Address(self):
 		return self._address
@@ -82,6 +85,19 @@ class Controller(object):
 	def id(self):
 		"""The axis model and serial number."""
 		return self.Query('ID')
+
+	@property
+	def IsEnabled(self):
+		return self.Query('MM') == 1
+	@IsEnabled.setter
+	def IsEnabled(self, value):
+		self.Write('MM' + str(int(bool(value))))
+
+	def GoHome(self, wait=True):
+		self.Write('OR')
+		if wait:
+			while(self.IsMoving):
+				sleep(0.1)
 
 	def GoTo(self, position, wait=True):
 		self.Position = position
@@ -122,7 +138,7 @@ class Controller(object):
 
 	@property
 	def IsMoving(self):
-		return self.State[-2:] == '28'
+		return self.State[-2:] in ['28', '1E', '1F', '46', '47']
 
 	@property
 	def Velocity(self):
