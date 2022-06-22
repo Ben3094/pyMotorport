@@ -4,8 +4,8 @@ import threading
 
 class MainController(object):
 	def __init__(self, port):
-		""":param port: Serial port connected to the controller."""
-		self.ser = serial.Serial(port=port, baudrate=56700)
+		""":param port: Serial port connected to the main controller."""
+		self.ser = serial.Serial(port=port, baudrate=56700, timeout=20)
 		self.ser.setDTR(False)
 		self.Abort = self.Stop
 
@@ -62,7 +62,10 @@ class Controller(object):
 		self.Read = self.MainController.Read   
 		self.read_error = self.MainController.read_error
 
-		if self.State[-2:] in ['0A', '0B', '0C', '0D', '0E', '0F', '10', '1F']:
+		self.UpdateStageSettings()
+		if self.IsInConfigurationState:
+			self.IsInConfigurationState = False
+		if self.IsNotReferenced:
 			self.GoHome(True)
 
 	@property
@@ -121,6 +124,15 @@ class Controller(object):
 			raise Exception('Position cannot be reached')
 
 	@property
+	def IsInConfigurationState(self):
+		return self.State[-2:] == '14'
+	@IsInConfigurationState.setter
+	def IsInConfigurationState(self, value):
+		self.Write('PW' + str(int(bool(value))))
+		if self.IsInConfigurationState != value:
+			raise Exception('Configuration mode cannot be changed')
+
+	@property
 	def MinPosition(self):
 		return float(self.Query('SL'))
 
@@ -135,16 +147,29 @@ class Controller(object):
 	@property
 	def State(self):
 		return self.Query('TS')
-
 	@property
 	def IsMoving(self):
 		return self.State[-2:] in ['28', '1E', '1F', '46', '47']
+	@property
+	def IsNotReferenced(self):
+		return self.State[-2:] in ['0A', '0B', '0C', '0D', '0E', '0F', '10', '1F']
 
 	@property
 	def Velocity(self):
 		return float(self.Query('VA'))
 
 	@property
-	def version(self):
+	def Version(self):
 		"""Get controller revision information"""
 		return self.Query('VE')
+
+	@property
+	def Stage(self):
+		""""Get the current connected stage reference"""
+		return self.Query('ZX')
+	
+	def SetAutoStageCheck(self, value):
+		return self.Write('ZX' + ('3' if bool(value) else '1'))
+	
+	def UpdateStageSettings(self):
+		return self.Write('ZX2')
