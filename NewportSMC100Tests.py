@@ -1,10 +1,12 @@
 from NewportSMC100 import MainController
 import numpy
 
-mainController = MainController('com3')
-xController = mainController.NewController()
-yController = mainController.NewController(2)
-zController = mainController.NewController(3)
+xController = MainController()
+yController = xController.NewController(2)
+zController = xController.NewController(3)
+xController.Connect('COM3')
+yController.Connect()
+zController.Connect()
 y = yController.Position
 yPositions = numpy.arange(yController.MinPosition, yController.MaxPosition, 1)
 z = zController.Position
