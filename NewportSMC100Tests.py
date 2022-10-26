@@ -4,9 +4,9 @@ import numpy
 xController = MainController()
 yController = xController.NewController(2)
 zController = xController.NewController(3)
-xController.Connect('COM3')
+xController.Connect('COM6')
 yController.Connect()
-zController.Connect()
+zController.Connect(homeIsHardwareDefined=False)
 y = yController.Position
 yPositions = numpy.arange(yController.MinPosition, yController.MaxPosition, 1)
 z = zController.Position
