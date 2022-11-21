@@ -1,4 +1,4 @@
-from NewportSMC100 import MainController
+from pyNewportController.NewportSMC100 import MainController
 import numpy
 
 xController = MainController()
