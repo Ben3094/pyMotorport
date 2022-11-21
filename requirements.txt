@@ -1,0 +1,2 @@
+aenum==3.1.11
+pyserial==3.5
