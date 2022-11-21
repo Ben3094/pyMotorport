@@ -175,13 +175,13 @@ class Controller():
 	
 	def Reset(self):
 		savedVersion = self.Version
-		savedTimeout = self.MainController._serialPort.timeout
-		self.MainController._serialPort.timeout = 0.1
+		savedTimeout = self.MainController.__serialPort__.timeout
+		self.MainController.__serialPort__.timeout = 0.1
 		self.Write('RS')
 		sleep(0.5)
 		while self.Version != savedVersion:
 			pass
-		self.MainController._serialPort.timeout = savedTimeout
+		self.MainController.__serialPort__.timeout = savedTimeout
 
 class MainController(Controller):
 	def __init__(self, address=1):
@@ -191,14 +191,14 @@ class MainController(Controller):
 	def Connect(self, port, homeIsHardwareDefined=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
-			self.ser = serial.Serial(port=port, baudrate=56700, timeout=20)
-			self.ser.setDTR(False)
+			self.__serialPort__ = serial.Serial(port=port, baudrate=56700, timeout=20)
+			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined)
 
 	def Disconnect(self):
 		if self.IsConnected:
 			super().Disconnect()
-			self.ser.close()
+			self.__serialPort__.close()
 	
 	@property
 	def IsAllConnected(self):
@@ -208,16 +208,16 @@ class MainController(Controller):
 		return True
 
 	def __del__(self):
-		self.ser.close()
+		self.__serialPort__.close()
 
 	def Read(self):
-		str = self.ser.readline()
+		str = self.__serialPort__.readline()
 		str = str.replace(b'\r', b'')
 		str = str.replace(b'\n', b'')
 		return str
 
 	def SuperWrite(self, string):
-		self.ser.write((string + '\r\n').encode(encoding='ascii'))
+		self.__serialPort__.write((string + '\r\n').encode(encoding='ascii'))
 
 	def SuperQuery(self, string, check_error=False):
 		with threading.Lock():
