@@ -1,12 +1,15 @@
-from pyNewportController.NewportSMC100 import MainController
+from pyNewportController.NewportSMC100 import MainController, ControllerState
 import numpy
+from time import sleep
 
-xController = MainController()
-yController = xController.NewController(2)
-zController = xController.NewController(3)
-xController.Connect('COM6')
-yController.Connect()
-zController.Connect(homeIsHardwareDefined=False)
+zController = MainController()
+yController = zController.NewController(2)
+xController = zController.NewController(3)
+zController.Connect('COM6', wait=True)
+yController.Connect(homeIsHardwareDefined=True, wait=False)
+xController.Connect(homeIsHardwareDefined=False, wait=False)
+while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
+    sleep(0.1)
 y = yController.Position
 yPositions = numpy.arange(yController.MinPosition, yController.MaxPosition, 1)
 z = zController.Position
