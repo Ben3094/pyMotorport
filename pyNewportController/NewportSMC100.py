@@ -1,7 +1,7 @@
 from aenum import MultiValueEnum
 import serial
 from time import sleep
-import threading
+from threading import Lock, Thread
 
 ADDRESS_RANGE = range(32)
 
@@ -42,13 +42,13 @@ class Controller():
 	def MainController(self):
 		return self._mainController
 
-	def Connect(self, homeIsHardwareDefined=True):
+	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
 		self.IsConnected = True
 		try:
 			# self.UpdateStageSettings()
 			self.HomeIsHardwareDefined = homeIsHardwareDefined
-			self.State = ControllerState.Ready
-		except Exception as err:
+			self.SetState(ControllerState.Ready, wait=wait)
+		except Exception:
 			self.IsConnected = False
 
 	def Disconnect(self):
@@ -127,31 +127,37 @@ class Controller():
 	def State(self):
 		return ControllerState(self.Query('TS')[-2:])
 	@State.setter
-	def State(self, value):
-		if value is not self.State:
-			match ControllerState(value):
-				case ControllerState.NotReferenced:
-					self.Reset()
+	def SetState(self, value, wait: bool= True):
+		thread = Thread(target=__setState__, args=[self, value])
+		thread.start()
+		if wait and thread.is_alive():
+			thread.join()
 
-				case ControllerState.Configuration:
-					self.State = ControllerState.NotReferenced
-					self.Write('PW1')
+		def __setState__(self, value):
+			if value is not self.State:
+				match ControllerState(value):
+					case ControllerState.NotReferenced:
+						self.Reset()
 
-				case ControllerState.Ready:
-					if self.State is ControllerState.Configuration:
-						self.Write('PW0')
-						self.Version
-					if self.State is ControllerState.Disable:
-						self.Write('MM1')
-					if self.State is ControllerState.Jogging or ControllerState.Moving or ControllerState.Homing:
-						while(self.State == ControllerState.Moving):
-							sleep(0.1)
-					if self.State is not ControllerState.Ready:
-						self.GoHome(True)
+					case ControllerState.Configuration:
+						self.State = ControllerState.NotReferenced
+						self.Write('PW1')
 
-				case ControllerState.Disable:
-					self.State = ControllerState.Ready
-					self.Write('MM0')
+					case ControllerState.Ready:
+						if self.State is ControllerState.Configuration:
+							self.Write('PW0')
+							self.Version
+						if self.State is ControllerState.Disable:
+							self.Write('MM1')
+						if self.State is ControllerState.Jogging or ControllerState.Moving or ControllerState.Homing:
+							while(self.State == ControllerState.Moving):
+								sleep(0.1)
+						if self.State is not ControllerState.Ready:
+							self.GoHome(True)
+
+					case ControllerState.Disable:
+						self.State = ControllerState.Ready
+						self.Write('MM0')
 					
 	@property
 	def Velocity(self):
@@ -188,12 +194,12 @@ class MainController(Controller):
 		super().__init__(self, address)
 		self._slaveControllers = list()
 
-	def Connect(self, port, homeIsHardwareDefined=True):
+	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
 			self.__serialPort__ = serial.Serial(port=port, baudrate=56700, timeout=20)
 			self.__serialPort__.setDTR(False)
-			super().Connect(homeIsHardwareDefined)
+			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 
 	def Disconnect(self):
 		if self.IsConnected:
@@ -220,7 +226,7 @@ class MainController(Controller):
 		self.__serialPort__.write((string + '\r\n').encode(encoding='ascii'))
 
 	def SuperQuery(self, string, check_error=False):
-		with threading.Lock():
+		with Lock():
 			if check_error:
 				self.raise_error()
 			self.SuperWrite(string)
