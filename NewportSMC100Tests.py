@@ -6,7 +6,7 @@ zController = MainController()
 yController = zController.NewController(2)
 xController = zController.NewController(3)
 zController.Connect('COM6', wait=True)
-yController.Connect(homeIsHardwareDefined=True, wait=False)
+yController.Connect(homeIsHardwareDefined=False, wait=False)
 xController.Connect(homeIsHardwareDefined=False, wait=False)
 while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
     sleep(0.1)
