@@ -48,7 +48,7 @@ class Controller():
 			# self.UpdateStageSettings()
 			self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=wait)
-		except Exception:
+		except Exception as e:
 			self.IsConnected = False
 
 	def Disconnect(self):
@@ -123,41 +123,42 @@ class Controller():
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
 		self.Write('ST')
 
-	@property
-	def State(self):
-		return ControllerState(self.Query('TS')[-2:])
-	@State.setter
+	def GetState(self):
+		try:
+			return ControllerState(self.Query('TS')[-2:])
+		except ValueError:
+			return ControllerState.Configuration
+	def __setState__(self, value):
+		if value is not self.State:
+			match ControllerState(value):
+				case ControllerState.NotReferenced:
+					self.Reset()
+
+				case ControllerState.Configuration:
+					self.State = ControllerState.NotReferenced
+					self.Write('PW1')
+
+				case ControllerState.Ready:
+					if self.State is ControllerState.Configuration:
+						self.Write('PW0')
+						self.Version
+					if self.State is ControllerState.Disable:
+						self.Write('MM1')
+					if self.State is ControllerState.Jogging or ControllerState.Moving or ControllerState.Homing:
+						while(self.State == ControllerState.Moving):
+							sleep(0.1)
+					if self.State is not ControllerState.Ready:
+						self.GoHome(True)
+
+				case ControllerState.Disable:
+					self.State = ControllerState.Ready
+					self.Write('MM0')
 	def SetState(self, value, wait: bool= True):
-		thread = Thread(target=__setState__, args=[self, value])
+		thread = Thread(target=self.__setState__, args=[value])
 		thread.start()
 		if wait and thread.is_alive():
-			thread.join()
-
-		def __setState__(self, value):
-			if value is not self.State:
-				match ControllerState(value):
-					case ControllerState.NotReferenced:
-						self.Reset()
-
-					case ControllerState.Configuration:
-						self.State = ControllerState.NotReferenced
-						self.Write('PW1')
-
-					case ControllerState.Ready:
-						if self.State is ControllerState.Configuration:
-							self.Write('PW0')
-							self.Version
-						if self.State is ControllerState.Disable:
-							self.Write('MM1')
-						if self.State is ControllerState.Jogging or ControllerState.Moving or ControllerState.Homing:
-							while(self.State == ControllerState.Moving):
-								sleep(0.1)
-						if self.State is not ControllerState.Ready:
-							self.GoHome(True)
-
-					case ControllerState.Disable:
-						self.State = ControllerState.Ready
-						self.Write('MM0')
+			thread.join()				
+	State = property(GetState, SetState)
 					
 	@property
 	def Velocity(self):
