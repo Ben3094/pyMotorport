@@ -1,4 +1,5 @@
 from aenum import MultiValueEnum
+from enum import Enum, Flag
 from serial import Serial, SerialTimeoutException
 from time import sleep
 from threading import Lock, Thread
@@ -14,6 +15,40 @@ class ControllerState(MultiValueEnum):
 	Disable = '3C', '3D', '3E'
 	Jogging = '46', '47'
 	Unknown = 'Unknown'
+
+class ControllerError(Enum):
+	NoError = '@'
+	MalformedCommand = 'A'
+	AddessNotAvailable = 'B'
+	OutOfRangeOrAbsentParameter = 'C'
+	NotAllowedCommand = 'D'
+	AlreadyStartedHomeSequence = 'E'
+	UnknownStageName = 'F'
+	OutOfLimitsDisplacement = 'G'
+	NotAllowedCommandInNotReferenced = 'H'
+	NotAllowedCommandInConfiguration = 'I'
+	NotAllowedCommandInDisable = 'J'
+	NotAllowedCommandInReady = 'K'
+	NotAllowedCommandInHoming = 'L'
+	NotAllowedCommandInMoving = 'M'
+	CurrentPositionOutOfSoftwareLimit = 'N'
+	CommunicationTimedOut = 'S'
+	EEPROMAccessError = 'U'
+	CommandExecutionError = 'V'
+	NotAllowedCommandPPVersion = 'W'
+	NotAllowedCommandCCVersion = 'X'
+
+class ControllerPositionerError(Flag):
+	OutputPowerExceeded = 0x200
+	InsufficientDCVoltage = 0x100
+	WrongESPStage = 0x80
+	HominTimedOut = 0x40
+	FollowingError = 0x20
+	ShortCircuitDetection = 0x10
+	RMSCurrentLimit = 0x8
+	PeakCurrentLimit = 0x4
+	PositiveEndOfRun = 0x2
+	NegativeEndOfRun = 0x1
 
 class Controller():
 	def __init__(self, mainController, address=1):
@@ -56,13 +91,27 @@ class Controller():
 	def Disconnect(self):
 		self.IsConnected = False
 
-	def Write(self, string):
-		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + string)
+	def Write(self, value):
+		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + value)
 	
-	def Query(self, string, check_error=False):
-		query = (str(self._address) if self._address is not None else "") + string
-		reply = self.MainController.SuperQuery(query + '?', check_error)
+	def __query__(self, value:str) -> str:
+		query = (str(self._address) if self._address is not None else "") + value
+		reply = self.MainController.SuperQuery(query + '?')
 		return reply[len(query):]
+	
+	def GetLastError(self) -> ControllerError:
+		"""Return the currently memorized error."""
+		return ControllerError(self.__query__('TE'))
+	
+	def Query(self, value, raisePreviousError:bool=False, raiseError:bool=False) -> str:
+		error = self.GetLastError()
+		if raisePreviousError:
+			raise Exception(error)
+		reply = self.__query__(value)
+		error = self.GetLastError()
+		if raiseError:
+			raise Exception(error)
+		return reply
 	
 	@property
 	def id(self):
@@ -130,16 +179,18 @@ class Controller():
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
 		self.Write('ST')
 
+	@property
+	def PositionerError(self) -> ControllerPositionerError:
+		return ControllerPositionerError(int(self.Query('TS')[:4], 16))
+
+	def __getState__(self):
+		return ControllerState(self.Query('TS')[-2:])
 	def GetState(self):
 		try:
-			state = self.Query('TS')[-2:]
-			print(f"{self.Address}: {state}")
-			state = ControllerState(state)
+			state = self.__getState__()
 			if state == ControllerState.Ready:
 				sleep(0.2)
-				state = self.Query('TS')[-2:]
-				print(f"{self.Address}: {state}")
-				state = ControllerState(state)
+				state = self.__getState__()
 			return state
 		except:
 			return ControllerState.Unknown
@@ -159,7 +210,7 @@ class Controller():
 					self.GoHome()
 				if self.State == ControllerState.Disable:
 					self.Write('MM1')
-				if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
+				while (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
 					sleep(0.1)
 
 			case ControllerState.Disable:
@@ -245,28 +296,14 @@ class MainController(Controller):
 			sleep(0.2)
 			self.SuperWrite(value)
 
-	def SuperQuery(self, value, check_error=False):
+	def SuperQuery(self, value:str):
 		with Lock():
-			if check_error:
-				self.raise_error()
 			self.SuperWrite(value)
-			if check_error:
-				self.raise_error()
 			return self.Read().decode()
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
 		self.SuperWrite('ST')
-
-	def read_error(self):
-		"""Return the last error as a string."""
-		return self.SuperQuery('TB')
-		
-	def raise_error(self):
-		"""Check the last error message and raise a NewportError."""
-		err = self.read_error()
-		if err[0] != "0":
-			raise Exception(err)
 
 	@property
 	def SlaveControllers(self):
