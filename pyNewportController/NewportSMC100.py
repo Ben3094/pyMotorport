@@ -1,5 +1,5 @@
 from aenum import MultiValueEnum
-import serial
+from serial import Serial, SerialTimeoutException
 from time import sleep
 from threading import Lock, Thread
 
@@ -13,6 +13,7 @@ class ControllerState(MultiValueEnum):
 	Ready = '32', '33', '34', '35'
 	Disable = '3C', '3D', '3E'
 	Jogging = '46', '47'
+	Unknown = 'Unknown'
 
 class Controller():
 	def __init__(self, mainController, address=1):
@@ -48,6 +49,7 @@ class Controller():
 			# self.UpdateStageSettings()
 			self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=wait)
+			return True
 		except Exception as e:
 			self.IsConnected = False
 
@@ -76,7 +78,12 @@ class Controller():
 
 	@property
 	def HomeIsHardwareDefined(self):
-		return self.Query('HT') != '1'
+		match self.Query('HT'):
+			case '1': return False
+			case '2': return True
+			case _:
+				sleep(0.1)
+				return self.HomeIsHardwareDefined
 	@HomeIsHardwareDefined.setter
 	def HomeIsHardwareDefined(self, value):
 		value = bool(value)
@@ -125,39 +132,48 @@ class Controller():
 
 	def GetState(self):
 		try:
-			return ControllerState(self.Query('TS')[-2:])
-		except ValueError:
-			return ControllerState.Configuration
+			state = self.Query('TS')[-2:]
+			print(f"{self.Address}: {state}")
+			state = ControllerState(state)
+			if state == ControllerState.Ready:
+				sleep(0.2)
+				state = self.Query('TS')[-2:]
+				print(f"{self.Address}: {state}")
+				state = ControllerState(state)
+			return state
+		except:
+			return ControllerState.Unknown
 	def __setState__(self, value):
-		if value is not self.State:
-			match ControllerState(value):
-				case ControllerState.NotReferenced:
-					self.Reset()
+		match ControllerState(value):
+			case ControllerState.NotReferenced:
+				self.Reset()
 
-				case ControllerState.Configuration:
-					self.State = ControllerState.NotReferenced
-					self.Write('PW1')
+			case ControllerState.Configuration:
+				self.State = ControllerState.NotReferenced
+				self.Write('PW1')
 
-				case ControllerState.Ready:
-					if self.State is ControllerState.Configuration:
-						self.Write('PW0')
-						self.Version
-					if self.State is ControllerState.Disable:
-						self.Write('MM1')
-					if self.State is ControllerState.Jogging or ControllerState.Moving or ControllerState.Homing:
-						while(self.State == ControllerState.Moving):
-							sleep(0.1)
-					if self.State is not ControllerState.Ready:
-						self.GoHome(True)
+			case ControllerState.Ready:
+				if self.State == ControllerState.Configuration:
+					self.Write('PW0')
+				if self.State == ControllerState.NotReferenced:
+					self.GoHome()
+				if self.State == ControllerState.Disable:
+					self.Write('MM1')
+				if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
+					sleep(0.1)
 
-				case ControllerState.Disable:
-					self.State = ControllerState.Ready
-					self.Write('MM0')
+			case ControllerState.Disable:
+				self.Write('MM0')
+		
+		if self.State != value:
+			self.State = value
+		
 	def SetState(self, value, wait: bool= True):
-		thread = Thread(target=self.__setState__, args=[value])
-		thread.start()
-		if wait and thread.is_alive():
-			thread.join()				
+		with Lock():
+			thread = Thread(target=self.__setState__, args=[value])
+			thread.start()
+			if wait:
+				thread.join()				
 	State = property(GetState, SetState)
 					
 	@property
@@ -181,13 +197,12 @@ class Controller():
 		return self.Query('ZX2')
 	
 	def Reset(self):
-		savedVersion = self.Version
 		savedTimeout = self.MainController.__serialPort__.timeout
 		self.MainController.__serialPort__.timeout = 0.1
 		self.Write('RS')
 		sleep(0.5)
-		while self.Version != savedVersion:
-			pass
+		while self.State is not ControllerState.NotReferenced:
+			sleep(0.1)
 		self.MainController.__serialPort__.timeout = savedTimeout
 
 class MainController(Controller):
@@ -198,7 +213,7 @@ class MainController(Controller):
 	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
-			self.__serialPort__ = serial.Serial(port=port, baudrate=56700, timeout=20)
+			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=1)
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 
@@ -223,14 +238,18 @@ class MainController(Controller):
 		str = str.replace(b'\n', b'')
 		return str
 
-	def SuperWrite(self, string):
-		self.__serialPort__.write((string + '\r\n').encode(encoding='ascii'))
+	def SuperWrite(self, value):
+		try:
+			return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
+		except SerialTimeoutException:
+			sleep(0.2)
+			self.SuperWrite(value)
 
-	def SuperQuery(self, string, check_error=False):
+	def SuperQuery(self, value, check_error=False):
 		with Lock():
 			if check_error:
 				self.raise_error()
-			self.SuperWrite(string)
+			self.SuperWrite(value)
 			if check_error:
 				self.raise_error()
 			return self.Read().decode()
