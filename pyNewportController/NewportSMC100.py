@@ -133,12 +133,10 @@ class Controller():
 	def GetState(self):
 		try:
 			state = self.Query('TS')[-2:]
-			print(f"{self.Address}: {state}")
 			state = ControllerState(state)
 			if state == ControllerState.Ready:
 				sleep(0.2)
 				state = self.Query('TS')[-2:]
-				print(f"{self.Address}: {state}")
 				state = ControllerState(state)
 			return state
 		except:
@@ -167,8 +165,6 @@ class Controller():
 		
 		if self.State != value:
 			self.State = value
-		else:
-			print('out')
 		
 	def SetState(self, value, wait: bool= True):
 		with Lock():
@@ -254,7 +250,7 @@ class MainController(Controller):
 			self.SuperWrite(value)
 			if check_error:
 				self.raise_error()
-			return self.Read().decode()
+			return self.Read().decode(errors='replace')
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
@@ -277,4 +273,4 @@ class MainController(Controller):
 	def NewController(self, address=1):
 		newController = Controller(self, address=address)
 		self._slaveControllers.append(newController)
-		return newController	
+		return newController
