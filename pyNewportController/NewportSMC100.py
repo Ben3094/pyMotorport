@@ -46,7 +46,7 @@ class Controller():
 	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
 		self.IsConnected = True
 		try:
-			# self.UpdateStageSettings()
+			# self.UpdateStageSettings() # Too long to execute
 			self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=wait)
 			return True
@@ -70,14 +70,14 @@ class Controller():
 		return self.Query('ID')
 
 	@property
-	def IsEnabled(self):
+	def IsEnabled(self) -> bool:
 		return self.Query('MM') == 1
 	@IsEnabled.setter
-	def IsEnabled(self, value):
+	def IsEnabled(self, value:bool):
 		self.Write('MM' + str(int(bool(value))))
 
 	@property
-	def HomeIsHardwareDefined(self):
+	def HomeIsHardwareDefined(self) -> bool:
 		match self.Query('HT'):
 			case '1': return False
 			case '2': return True
@@ -85,7 +85,7 @@ class Controller():
 				sleep(0.1)
 				return self.HomeIsHardwareDefined
 	@HomeIsHardwareDefined.setter
-	def HomeIsHardwareDefined(self, value):
+	def HomeIsHardwareDefined(self, value:bool):
 		value = bool(value)
 		if value != self.HomeIsHardwareDefined:
 			self.State = ControllerState.Configuration
@@ -119,18 +119,18 @@ class Controller():
 			raise Exception('Position cannot be reached')
 
 	@property
-	def MinPosition(self):
+	def MinPosition(self) -> float:
 		return float(self.Query('SL'))
 
 	@property
-	def MaxPosition(self):
+	def MaxPosition(self) -> float:
 		return float(self.Query('SR'))
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
 		self.Write('ST')
 
-	def GetState(self):
+	def GetState(self) -> ControllerState:
 		try:
 			state = self.Query('TS')[-2:]
 			state = ControllerState(state)
@@ -141,7 +141,7 @@ class Controller():
 			return state
 		except:
 			return ControllerState.Unknown
-	def __setState__(self, value):
+	def __setState__(self, value:ControllerState):
 		match ControllerState(value):
 			case ControllerState.NotReferenced:
 				self.Reset()
@@ -166,7 +166,7 @@ class Controller():
 		if self.State != value:
 			self.State = value
 		
-	def SetState(self, value, wait: bool= True):
+	def SetState(self, value:ControllerState, wait: bool= True):
 		with Lock():
 			thread = Thread(target=self.__setState__, args=[value])
 			thread.start()
@@ -175,11 +175,11 @@ class Controller():
 	State = property(GetState, SetState)
 					
 	@property
-	def Velocity(self):
+	def Velocity(self) -> float:
 		return float(self.Query('VA'))
 
 	@property
-	def Version(self):
+	def Version(self) -> str:
 		"""Get controller revision information"""
 		return self.Query('VE')
 
