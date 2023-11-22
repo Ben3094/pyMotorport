@@ -38,3 +38,16 @@ xAxisController.SetState(ControllerState.Ready, wait=True)
 In order to check or set the state of the controller, it defines a ```State``` property. This property return or accept a ```ControllerState``` enumeration. Setting the ```State``` manage all operations needed to set a state while another (of any sort) is currently applied. 
 
 All time-consumming method (like ```Connect```, ```GoTo```, ```GoHome```, or ```SetState```) defines a ```wait``` parameter in order to stop execution while the physical operation is not completed.
+
+>  **⚠️ Warning ⚠️**
+> 
+> Do not try to use the ```SetState``` method (or to set the ```State``` property) on several controller without waiting for an individual commmand to finish (i.e., by threading, or by setting the ```wait``` argument to ```False```).
+> 
+> As the ```HomeIsHardwareDefined``` use the ```State``` property, you need to wait here too.
+>
+> ```python
+> xAxisController.HomeIsHardwareDefined = False
+> xAxisController.SetState(ControllerState.Ready, wait=True)
+> ```
+> 
+> This library is still in development.
