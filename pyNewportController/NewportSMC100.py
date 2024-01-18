@@ -134,10 +134,6 @@ class Controller():
 		try:
 			state = self.Query('TS')[-2:]
 			state = ControllerState(state)
-			if state == ControllerState.Ready:
-				sleep(0.2)
-				state = self.Query('TS')[-2:]
-				state = ControllerState(state)
 			return state
 		except:
 			return ControllerState.Unknown
@@ -158,7 +154,7 @@ class Controller():
 				if self.State == ControllerState.Disable:
 					self.Write('MM1')
 				if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
-					sleep(0.1)
+					sleep(0.3)
 
 			case ControllerState.Disable:
 				self.Write('MM0')
