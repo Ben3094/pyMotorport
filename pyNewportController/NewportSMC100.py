@@ -132,12 +132,17 @@ class Controller():
 
 	def GetState(self) -> ControllerState:
 		try:
+			self.MainController.__stateLock__.acquire()
 			state = self.Query('TS')[-2:]
 			state = ControllerState(state)
+			self.MainController.__stateLock__.release()
 			return state
 		except:
 			return ControllerState.Unknown
 	def __setState__(self, value:ControllerState):
+		while self.State == ControllerState.Unknown:
+			sleep(0.1)
+			
 		match ControllerState(value):
 			case ControllerState.NotReferenced:
 				self.Reset()
@@ -163,11 +168,10 @@ class Controller():
 			self.State = value
 		
 	def SetState(self, value:ControllerState, wait: bool= True):
-		with Lock():
-			thread = Thread(target=self.__setState__, args=[value])
-			thread.start()
-			if wait:
-				thread.join()				
+		thread = Thread(target=self.__setState__, args=[value])
+		thread.start()
+		if wait:
+			thread.join()				
 	State = property(GetState, SetState)
 					
 	@property
@@ -200,6 +204,8 @@ class Controller():
 		self.MainController.__serialPort__.timeout = savedTimeout
 
 class MainController(Controller):
+	__stateLock__ = Lock()
+
 	def __init__(self, address=1):
 		super().__init__(self, address)
 		self._slaveControllers = list()
