@@ -2,8 +2,12 @@ from aenum import MultiValueEnum
 from serial import Serial, SerialTimeoutException
 from time import sleep
 from threading import Lock, Thread
+from re import split, match
+import re
 
 ADDRESS_RANGE = range(32)
+QUERY_REGEX = "(\d+[A-Z]{2})\?"
+QUERY_RESPONSE_REGEX = "(\d+[A-Z]{2})(.+)"
 
 class ControllerState(MultiValueEnum):
 	NotReferenced = '0A', '0B', '0C', '0D', '0E', '0F', '10', '11'
@@ -56,13 +60,12 @@ class Controller():
 	def Disconnect(self):
 		self.IsConnected = False
 
-	def Write(self, string):
-		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + string)
+	def Write(self, string, retry=True):
+		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + string, retry)
 	
 	def Query(self, string, check_error=False):
 		query = (str(self._address) if self._address is not None else "") + string
-		reply = self.MainController.SuperQuery(query + '?', check_error)
-		return reply[len(query):]
+		return self.MainController.SuperQuery(query + '?', check_error)
 	
 	@property
 	def id(self):
@@ -163,7 +166,7 @@ class Controller():
 					if self.State == ControllerState.Disable:
 						self.Write('MM1')
 					if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
-						sleep(0.1)
+						sleep(0.3)
 
 				case ControllerState.Disable:
 					self.Write('MM0')
@@ -198,20 +201,22 @@ class Controller():
 		return self.Query('ZX2')
 	
 	def Reset(self):
-		self.Write('RS')
-		sleep(0.3)
+		self.Write('RS', retry=False)
+		while self.State != ControllerState.NotReferenced:
+			self.Write('RS', retry=False)
 
 class MainController(Controller):
 	__stateLock__ = Lock()
 
 	def __init__(self, address=1):
 		super().__init__(self, address)
-		self._slaveControllers = list()
+		self.__slaveControllers__ = list()
+		self.__receivedMessages__ = dict()
 
 	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
-			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=0.1)
+			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=0.1, write_timeout=20)
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 
@@ -230,41 +235,46 @@ class MainController(Controller):
 	def __del__(self):
 		self.__serialPort__.close()
 
-	def Read(self):
-		str = self.__serialPort__.readline()
-		str = str.replace(b'\r', b'')
-		str = str.replace(b'\n', b'')
-		return str
+	def Read(self) -> list[str]:
+		messages = self.__serialPort__.readall().decode()
+		messages = split('\r|\n', messages)
+		return [message for message in messages if message != '']
 
-	def SuperWrite(self, value):
+	def SuperWrite(self, value, retry=True):
 		try:
 			return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
 		except SerialTimeoutException:
-			sleep(0.2)
-			self.SuperWrite(value)
+			sleep(0.1)
+			if retry:
+				self.SuperWrite(value)
 
 	def SuperQuery(self, value, check_error=False):
-		with Lock():
-			if check_error:
-				self.raise_error()
+		if check_error:
+			self.raise_error()
+
+		try:
 			self.SuperWrite(value)
-			if check_error:
-				self.raise_error()
-			
-			readLines = []
-			readLine = self.__serialPort__.readline().replace(b'\00', b'')
-			while readLine != b'':
-				readLines.append(readLine)
-				readLine = self.__serialPort__.readline()
-			
-			readLines.reverse()
-			for readLine in readLines:
-				readLine = readLine.replace(b'\r', b'')
-				readLine = readLine.replace(b'\n', b'')
-				readLine = readLine.decode()
-				if readLine[:3] == value[:3]:
-					return readLine
-		raise Exception("Query not aswered")
+		except SerialTimeoutException:
+			sleep(0.1)
+			self.SuperWrite(value)
+
+		if check_error:
+			self.raise_error()
+		
+		# Messages processing
+		toBeReceivedMessagePrefix = match(QUERY_REGEX, value)[1]
+		if toBeReceivedMessagePrefix in self.__receivedMessages__:
+			del self.__receivedMessages__[toBeReceivedMessagePrefix] # Delete old response
+		incommingMessages = self.Read()
+		for incommingMessage in incommingMessages:
+			correctMessage = match(QUERY_RESPONSE_REGEX, incommingMessage)
+			if correctMessage:
+				self.__receivedMessages__[correctMessage[1]] = correctMessage[2]
+		
+		try:
+			return self.__receivedMessages__[toBeReceivedMessagePrefix]
+		except IndexError:
+			raise Exception("Query not aswered")
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
@@ -282,9 +292,9 @@ class MainController(Controller):
 
 	@property
 	def SlaveControllers(self):
-		return self._slaveControllers
+		return self.__slaveControllers__
 	
 	def NewController(self, address=1):
 		newController = Controller(self, address=address)
-		self._slaveControllers.append(newController)
+		self.__slaveControllers__.append(newController)
 		return newController
