@@ -77,19 +77,24 @@ class Controller():
 		self.Write('MM' + str(int(bool(value))))
 
 	@property
-	def HomeIsHardwareDefined(self) -> bool:
+	def GetHomeIsHardwareDefined(self) -> bool:
 		match self.Query('HT'):
 			case '1': return False
 			case '2': return True
 			case _:
 				sleep(0.1)
 				return self.HomeIsHardwareDefined
-	@HomeIsHardwareDefined.setter
-	def HomeIsHardwareDefined(self, value:bool):
+	def __setHomeIsHardwareDefined__(self, value:bool):
 		value = bool(value)
 		if value != self.HomeIsHardwareDefined:
 			self.State = ControllerState.Configuration
 			self.Write('HT' + ('2' if value else '1'))
+	def SetHomeIsHardwareDefined(self, value:bool, wait: bool= True):
+		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value])
+		thread.start()
+		if wait:
+			thread.join()				
+	State = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
 
 	def GoHome(self, wait=True):
 		self.Write('OR')
@@ -138,34 +143,32 @@ class Controller():
 			self.MainController.__stateLock__.release()
 			return state
 		except:
+			self.MainController.__stateLock__.release()
 			return ControllerState.Unknown
 	def __setState__(self, value:ControllerState):
-		while self.State == ControllerState.Unknown:
+		while self.State != value:
+			match ControllerState(value):
+				case ControllerState.NotReferenced:
+					self.Reset()
+
+				case ControllerState.Configuration:
+					self.State = ControllerState.NotReferenced
+					self.Write('PW1')
+
+				case ControllerState.Ready:
+					if self.State == ControllerState.Configuration:
+						self.Write('PW0')
+					if self.State == ControllerState.NotReferenced:
+						self.GoHome()
+					if self.State == ControllerState.Disable:
+						self.Write('MM1')
+					if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
+						sleep(0.1)
+
+				case ControllerState.Disable:
+					self.Write('MM0')
+
 			sleep(0.1)
-			
-		match ControllerState(value):
-			case ControllerState.NotReferenced:
-				self.Reset()
-
-			case ControllerState.Configuration:
-				self.State = ControllerState.NotReferenced
-				self.Write('PW1')
-
-			case ControllerState.Ready:
-				if self.State == ControllerState.Configuration:
-					self.Write('PW0')
-				if self.State == ControllerState.NotReferenced:
-					self.GoHome()
-				if self.State == ControllerState.Disable:
-					self.Write('MM1')
-				if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
-					sleep(0.3)
-
-			case ControllerState.Disable:
-				self.Write('MM0')
-		
-		if self.State != value:
-			self.State = value
 		
 	def SetState(self, value:ControllerState, wait: bool= True):
 		thread = Thread(target=self.__setState__, args=[value])
@@ -195,13 +198,8 @@ class Controller():
 		return self.Query('ZX2')
 	
 	def Reset(self):
-		savedTimeout = self.MainController.__serialPort__.timeout
-		self.MainController.__serialPort__.timeout = 0.1
 		self.Write('RS')
-		sleep(0.5)
-		while self.State is not ControllerState.NotReferenced:
-			sleep(0.1)
-		self.MainController.__serialPort__.timeout = savedTimeout
+		sleep(0.3)
 
 class MainController(Controller):
 	__stateLock__ = Lock()
@@ -213,7 +211,7 @@ class MainController(Controller):
 	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
-			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=1)
+			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=0.1)
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 
@@ -252,7 +250,21 @@ class MainController(Controller):
 			self.SuperWrite(value)
 			if check_error:
 				self.raise_error()
-			return self.Read().decode(errors='replace')
+			
+			readLines = []
+			readLine = self.__serialPort__.readline().replace(b'\00', b'')
+			while readLine != b'':
+				readLines.append(readLine)
+				readLine = self.__serialPort__.readline()
+			
+			readLines.reverse()
+			for readLine in readLines:
+				readLine = readLine.replace(b'\r', b'')
+				readLine = readLine.replace(b'\n', b'')
+				readLine = readLine.decode()
+				if readLine[:3] == value[:3]:
+					return readLine
+		raise Exception("Query not aswered")
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
