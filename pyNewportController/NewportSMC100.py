@@ -1,6 +1,6 @@
 from aenum import MultiValueEnum
 from serial import Serial, SerialTimeoutException
-from time import sleep
+from time import sleep, time
 from threading import Lock, Thread
 from re import split, match
 import re
@@ -8,6 +8,9 @@ import re
 ADDRESS_RANGE = range(32)
 QUERY_REGEX = "(\d+[A-Z]{2})\?"
 QUERY_RESPONSE_REGEX = "(\d+[A-Z]{2})(.+)"
+
+class QueryNotAnswered(Exception):
+	pass
 
 class ControllerState(MultiValueEnum):
 	NotReferenced = '0A', '0B', '0C', '0D', '0E', '0F', '10', '11'
@@ -78,7 +81,7 @@ class Controller():
 	@IsEnabled.setter
 	def IsEnabled(self, value:bool):
 		self.Write('MM' + str(int(bool(value))))
-
+	
 	@property
 	def GetHomeIsHardwareDefined(self) -> bool:
 		match self.Query('HT'):
@@ -87,6 +90,7 @@ class Controller():
 			case _:
 				sleep(0.1)
 				return self.HomeIsHardwareDefined
+	SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT:float = 20
 	def __setHomeIsHardwareDefined__(self, value:bool):
 		value = bool(value)
 		if value != self.HomeIsHardwareDefined:
@@ -96,7 +100,9 @@ class Controller():
 		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value])
 		thread.start()
 		if wait:
-			thread.join()				
+			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)		
+			if thread.is_alive():
+				raise TimeoutError("Set HomeIsHardwareDefined took too long")		
 	State = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
 
 	def GoHome(self, wait=True):
@@ -111,6 +117,7 @@ class Controller():
 			while(self.State == ControllerState.Moving):
 				sleep(0.1)
 
+	POSITION_REGEX = "([+-]?\d+(?:\.\d+)?).*"
 	@property
 	def Position(self):
 		"""The TP command returns the value of the current position.
@@ -118,7 +125,7 @@ class Controller():
 			In MOVING state, this value always changes.
 			In READY state, this value should be equal or very close to the set point and target position.
 			Together with the TS command, the TP command helps evaluating whether a motion is completed"""
-		return float(self.Query('TP'))
+		return float(match(Controller.POSITION_REGEX, self.Query('TP'))[1])
 	@Position.setter
 	def Position(self, value):
 		if self.MinPosition <= value <= self.MaxPosition:
@@ -128,11 +135,11 @@ class Controller():
 
 	@property
 	def MinPosition(self) -> float:
-		return float(self.Query('SL'))
+		return float(match(Controller.POSITION_REGEX, self.Query('SL'))[1])
 
 	@property
 	def MaxPosition(self) -> float:
-		return float(self.Query('SR'))
+		return float(match(Controller.POSITION_REGEX, self.Query('SR'))[1])
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
@@ -148,7 +155,7 @@ class Controller():
 		except:
 			self.MainController.__stateLock__.release()
 			return ControllerState.Unknown
-	def __setState__(self, value:ControllerState):
+	def __setState__(self, value:ControllerState, retry:bool=True):
 		while self.State != value:
 			match ControllerState(value):
 				case ControllerState.NotReferenced:
@@ -172,12 +179,15 @@ class Controller():
 					self.Write('MM0')
 
 			sleep(0.1)
-		
+
+	SET_STATE_TIMEOUT = 40
 	def SetState(self, value:ControllerState, wait: bool= True):
 		thread = Thread(target=self.__setState__, args=[value])
 		thread.start()
 		if wait:
-			thread.join()				
+			thread.join(timeout=Controller.SET_STATE_TIMEOUT)		
+			if thread.is_alive():
+				raise TimeoutError("Set HomeIsHardwareDefined took too long")
 	State = property(GetState, SetState)
 					
 	@property
@@ -199,11 +209,20 @@ class Controller():
 	
 	def UpdateStageSettings(self):
 		return self.Query('ZX2')
-	
-	def Reset(self):
-		self.Write('RS', retry=False)
-		while self.State != ControllerState.NotReferenced:
+
+	RESET_TIMEOUT = 5
+	def Reset(self, retry:int=5):
+		while retry >= 0:
 			self.Write('RS', retry=False)
+			startTime = time()
+			while time() - startTime < Controller.RESET_TIMEOUT:
+				if self.State == ControllerState.NotReferenced:
+					return
+				else:
+					sleep(0.1)
+			retry = retry - 1
+		raise TimeoutError("Reset was too long")
+
 
 class MainController(Controller):
 	__stateLock__ = Lock()
@@ -235,46 +254,49 @@ class MainController(Controller):
 	def __del__(self):
 		self.__serialPort__.close()
 
-	def Read(self) -> list[str]:
-		messages = self.__serialPort__.readall().decode()
-		messages = split('\r|\n', messages)
-		return [message for message in messages if message != '']
+	def ReadMessages(self) -> dict[str, str]:
+		incommingMessages = self.__serialPort__.readall().decode()
+		incommingMessages = split('\r|\n', incommingMessages)
+		incommingMessages = [message for message in incommingMessages if message != '']
+		for incommingMessage in incommingMessages:
+			correctMessage = match(QUERY_RESPONSE_REGEX, incommingMessage)
+			if correctMessage:
+				self.__receivedMessages__[correctMessage[1]] = correctMessage[2]
+		return self.__receivedMessages__
+
+	READ_TIMEOUT = 2
+	def Read(self, messagePrefix) -> str:
+		startTime = time()
+		while time() - startTime < MainController.READ_TIMEOUT:
+			try:
+				answer = self.ReadMessages()[messagePrefix]
+				return answer
+			except KeyError:
+				pass
+		raise TimeoutError("Read took too long")
 
 	def SuperWrite(self, value, retry=True):
 		try:
 			return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
 		except SerialTimeoutException:
-			sleep(0.1)
+			sleep(0.2)
 			if retry:
 				self.SuperWrite(value)
 
-	def SuperQuery(self, value, check_error=False):
-		if check_error:
-			self.raise_error()
-
-		try:
-			self.SuperWrite(value)
-		except SerialTimeoutException:
-			sleep(0.1)
-			self.SuperWrite(value)
-
-		if check_error:
-			self.raise_error()
-		
+	def SuperQuery(self, value, retry:int=10):
 		# Messages processing
 		toBeReceivedMessagePrefix = match(QUERY_REGEX, value)[1]
 		if toBeReceivedMessagePrefix in self.__receivedMessages__:
 			del self.__receivedMessages__[toBeReceivedMessagePrefix] # Delete old response
-		incommingMessages = self.Read()
-		for incommingMessage in incommingMessages:
-			correctMessage = match(QUERY_RESPONSE_REGEX, incommingMessage)
-			if correctMessage:
-				self.__receivedMessages__[correctMessage[1]] = correctMessage[2]
 		
-		try:
-			return self.__receivedMessages__[toBeReceivedMessagePrefix]
-		except IndexError:
-			raise Exception("Query not aswered")
+		while retry >= 0:
+			self.SuperWrite(value)
+			try:
+				return self.Read(toBeReceivedMessagePrefix)
+			except (TimeoutError, UnicodeDecodeError):
+				pass
+		
+		raise QueryNotAnswered()
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
