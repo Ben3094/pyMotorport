@@ -211,8 +211,8 @@ class Controller():
 		return self.Query('ZX2')
 
 	RESET_TIMEOUT = 5
-	def Reset(self, retry:int=5):
-		while retry >= 0:
+	def Reset(self, retries:int=5):
+		while retries >= 0:
 			self.Write('RS', retry=0)
 			startTime = time()
 			while time() - startTime < Controller.RESET_TIMEOUT:
@@ -220,7 +220,7 @@ class Controller():
 					return
 				else:
 					sleep(0.1)
-			retry = retry - 1
+			retries = retries - 1
 		raise TimeoutError("Reset was too long")
 
 
@@ -275,23 +275,25 @@ class MainController(Controller):
 				pass
 		raise TimeoutError("Read took too long")
 
-	def SuperWrite(self, value, retry:int=10):
-		while retry >= 0:
+	def SuperWrite(self, value, retries:int=10):
+		retriesLeft = retries
+		while retriesLeft >= 0:
 			try:
 				return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
 			except SerialTimeoutException:
 				pass
 			sleep(0.1)
-			retry = retry - 1
-		raise TimeoutError("Message cannot be sent")
+			retriesLeft = retriesLeft - 1
+		if retries > 0:
+			raise TimeoutError("Message cannot be sent")
 
-	def SuperQuery(self, value, retry:int=10):
+	def SuperQuery(self, value, retries:int=10):
 		# Messages processing
 		toBeReceivedMessagePrefix = match(QUERY_REGEX, value)[1]
 		if toBeReceivedMessagePrefix in self.__receivedMessages__:
 			del self.__receivedMessages__[toBeReceivedMessagePrefix] # Delete old response
 		
-		while retry >= 0:
+		while retries >= 0:
 			self.SuperWrite(value)
 			try:
 				return self.Read(toBeReceivedMessagePrefix)
