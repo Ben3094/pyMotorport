@@ -147,13 +147,10 @@ class Controller():
 
 	def GetState(self) -> ControllerState:
 		try:
-			self.MainController.__stateLock__.acquire()
 			state = self.Query('TS')[-2:]
 			state = ControllerState(state)
-			self.MainController.__stateLock__.release()
 			return state
 		except:
-			self.MainController.__stateLock__.release()
 			return ControllerState.Unknown
 	def __setState__(self, value:ControllerState, retry:bool=True):
 		while self.State != value:
@@ -225,8 +222,6 @@ class Controller():
 
 
 class MainController(Controller):
-	__stateLock__ = Lock()
-
 	def __init__(self, address=1):
 		super().__init__(self, address)
 		self.__slaveControllers__ = list()
