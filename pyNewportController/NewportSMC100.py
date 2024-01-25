@@ -63,7 +63,7 @@ class Controller():
 	def Disconnect(self):
 		self.IsConnected = False
 
-	def Write(self, string, retry=True):
+	def Write(self, string, retry:int=10):
 		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + string, retry)
 	
 	def Query(self, string, check_error=False):
@@ -213,7 +213,7 @@ class Controller():
 	RESET_TIMEOUT = 5
 	def Reset(self, retry:int=5):
 		while retry >= 0:
-			self.Write('RS', retry=False)
+			self.Write('RS', retry=0)
 			startTime = time()
 			while time() - startTime < Controller.RESET_TIMEOUT:
 				if self.State == ControllerState.NotReferenced:
@@ -255,7 +255,7 @@ class MainController(Controller):
 		self.__serialPort__.close()
 
 	def ReadMessages(self) -> dict[str, str]:
-		incommingMessages = self.__serialPort__.readall().decode()
+		incommingMessages = self.__serialPort__.readall().decode(encoding='ascii', errors='ignore')
 		incommingMessages = split('\r|\n', incommingMessages)
 		incommingMessages = [message for message in incommingMessages if message != '']
 		for incommingMessage in incommingMessages:
@@ -275,13 +275,15 @@ class MainController(Controller):
 				pass
 		raise TimeoutError("Read took too long")
 
-	def SuperWrite(self, value, retry=True):
-		try:
-			return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
-		except SerialTimeoutException:
-			sleep(0.2)
-			if retry:
-				self.SuperWrite(value)
+	def SuperWrite(self, value, retry:int=10):
+		while retry >= 0:
+			try:
+				return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
+			except SerialTimeoutException:
+				pass
+			sleep(0.1)
+			retry = retry - 1
+		raise TimeoutError("Message cannot be sent")
 
 	def SuperQuery(self, value, retry:int=10):
 		# Messages processing
@@ -293,7 +295,7 @@ class MainController(Controller):
 			self.SuperWrite(value)
 			try:
 				return self.Read(toBeReceivedMessagePrefix)
-			except (TimeoutError, UnicodeDecodeError):
+			except TimeoutError:
 				pass
 		
 		raise QueryNotAnswered()
