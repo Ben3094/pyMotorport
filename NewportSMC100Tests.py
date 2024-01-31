@@ -1,26 +1,74 @@
 from pyNewportController.NewportSMC100 import MainController, ControllerState
-import numpy
+from numpy import arange, around
 from time import sleep
+import faulthandler
 
+if __name__ == "__main__":
+    faulthandler.enable()
+
+# Set variables
+xMin = 0 # mm
+xMax = 10 # mm
+xStep = 1 # mm
+yMin = 0 # mm
+yMax = 10 # mm
+yStep = 1 # mm
+zMin = 0 # mm
+zMax = 0 # mm
+zStep = 0.05 # mm
+
+# Prepare variables for numpy
+xStep = 1 if xStep == 0 else xStep
+xMax = xMax + xStep
+xDecimal = str(xStep)[::-1].find('.')
+xDecimal = 0 if xDecimal < 0 else xDecimal
+yStep = 1 if yStep == 0 else yStep
+yMax = yMax + yStep
+yDecimal = str(yStep)[::-1].find('.')
+yDecimal = 0 if yDecimal < 0 else yDecimal
+zStep = 1 if zStep == 0 else zStep
+zMax = zMax + zStep
+zDecimal = str(zStep)[::-1].find('.')
+zDecimal = 0 if zDecimal < 0 else zDecimal
+
+# Set actuators
+actuatorsCOMPort = 'COM5'
 zController = MainController()
 yController = zController.NewController(2)
 xController = zController.NewController(3)
-zController.Connect('COM6', wait=True)
-yController.Connect(homeIsHardwareDefined=False, wait=False)
-xController.Connect(homeIsHardwareDefined=False, wait=False)
+zController.Connect(actuatorsCOMPort, homeIsHardwareDefined=True, wait=False)
+xController.Connect(homeIsHardwareDefined=True, wait=False)
+yController.Connect(homeIsHardwareDefined=True, wait=False)
 while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
-    sleep(0.1)
+	sleep(0.1)
+zController.SetState(ControllerState.Disable, wait=False)
+yController.SetState(ControllerState.Disable, wait=False)
+xController.SetState(ControllerState.Disable, wait=False)
+while xController.State != ControllerState.Disable or yController.State != ControllerState.Disable or zController.State != ControllerState.Disable:
+	sleep(0.1)
+zController.SetHomeIsHardwareDefined(False, wait=False)
+yController.SetHomeIsHardwareDefined(False, wait=False)
+xController.SetHomeIsHardwareDefined(False, wait=False)
+while xController.State != ControllerState.Configuration or yController.State != ControllerState.Configuration or zController.State != ControllerState.Configuration:
+	sleep(0.1)
+zController.SetState(ControllerState.Ready, wait=False)
+yController.SetState(ControllerState.Ready, wait=False)
+xController.SetState(ControllerState.Ready, wait=False)
+while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
+	sleep(0.1)
+
+yPositions = around(arange(yMin, yMax, yStep), yDecimal)
+zPositions = around(arange(zMin, zMax, zStep), zDecimal)
 y = yController.Position
-yPositions = numpy.arange(yController.MinPosition, yController.MaxPosition, 1)
 z = zController.Position
-zPositions = numpy.arange(zController.MinPosition, zController.MaxPosition, 1)
-for x in numpy.arange(xController.MinPosition, xController.MaxPosition, 1):
-    xController.GoTo(x, wait=True)
-
-    isYCloserToMin = abs(y - yController.MinPosition) < abs(y - yController.MaxPosition)
-    for y in (yPositions if isYCloserToMin else yPositions[::-1]):
-        yController.GoTo(y, wait=True)
-
-        isZCloserToMin = abs(z - zController.MinPosition) < abs(z - zController.MaxPosition)
-        for z in (zPositions if isZCloserToMin else zPositions[::-1]):
-            zController.GoTo(z, wait=True)
+for x in around(arange(xMin, xMax, xStep), xDecimal):
+	xController.GoTo(x, wait=False)
+	isYCloserToMin = abs(y - yController.MinPosition) < abs(y - yController.MaxPosition)
+	for y in (yPositions if isYCloserToMin else yPositions[::-1]):
+		yController.GoTo(y, wait=False)
+		isZCloserToMin = abs(z - zController.MinPosition) < abs(z - zController.MaxPosition)
+		for z in (zPositions if isZCloserToMin else zPositions[::-1]):
+			zController.GoTo(z, wait=False)
+			while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
+				sleep(0.1)
+print("Done")

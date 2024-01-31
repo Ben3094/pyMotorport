@@ -1,2 +1,2 @@
-aenum==3.1.11
-pyserial==3.5
+aenum>=3.1.11
+pyserial>=3.5

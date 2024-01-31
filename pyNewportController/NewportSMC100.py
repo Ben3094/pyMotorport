@@ -1,13 +1,14 @@
 from aenum import MultiValueEnum
 from serial import Serial, SerialTimeoutException
 from time import sleep, time
-from threading import Lock, Thread
+from threading import Thread
+from multiprocessing import Lock
 from re import split, match
-import re
 
 ADDRESS_RANGE = range(32)
-QUERY_REGEX = "(\d+[A-Z]{2})\?"
-QUERY_RESPONSE_REGEX = "(\d+[A-Z]{2})(.+)"
+QUERY_REGEX = "(\\d+[A-Z]{2})\\?"
+QUERY_RESPONSE_REGEX = "(\\d+[A-Z]{2})(.+)?"
+FLOAT_PARAMETER_REGEX = "([+-]?\\d+(?:\\.\\d+)?).*"
 
 class QueryNotAnswered(Exception):
 	pass
@@ -22,7 +23,8 @@ class ControllerState(MultiValueEnum):
 	Jogging = '46', '47'
 	Unknown = 'Unknown'
 
-class Controller():
+
+class Controller:
 	def __init__(self, mainController, address=1):
 		"""
 		:param mainController: The main controller connected to the computer 
@@ -30,17 +32,16 @@ class Controller():
 		:param address: the address of the new controller
 		:type axis: int
 		"""
-		self._mainController = mainController
+		self.__mainController__ = mainController
 		if address in ADDRESS_RANGE:
 			self._address = address
 
-		self.Read = self.MainController.Read   
+		self.Read = self.MainController.Read
 		self.read_error = self.MainController.read_error
 
 		self.IsConnected = False
 
-	def __getNone__():
-		return None
+		self.__setStateLock__ = Lock()
 
 	@property
 	def Address(self):
@@ -48,7 +49,7 @@ class Controller():
 
 	@property
 	def MainController(self):
-		return self._mainController
+		return self.__mainController__
 
 	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
 		self.IsConnected = True
@@ -63,13 +64,13 @@ class Controller():
 	def Disconnect(self):
 		self.IsConnected = False
 
-	def Write(self, string, retry:int=10):
+	def Write(self, string, retry: int = 10):
 		self.MainController.SuperWrite((str(self._address) if self._address is not None else "") + string, retry)
-	
-	def Query(self, string, check_error=False):
+
+	def Query(self, string):
 		query = (str(self._address) if self._address is not None else "") + string
-		return self.MainController.SuperQuery(query + '?', check_error)
-	
+		return self.MainController.SuperQuery(query + '?')
+
 	@property
 	def id(self):
 		"""The axis model and serial number."""
@@ -78,68 +79,112 @@ class Controller():
 	@property
 	def IsEnabled(self) -> bool:
 		return self.Query('MM') == 1
+
 	@IsEnabled.setter
-	def IsEnabled(self, value:bool):
+	def IsEnabled(self, value: bool):
 		self.Write('MM' + str(int(bool(value))))
-	
+
 	@property
 	def GetHomeIsHardwareDefined(self) -> bool:
 		match self.Query('HT'):
-			case '1': return False
-			case '2': return True
+			case '1':
+				return False
+			case '2':
+				return True
 			case _:
 				sleep(0.1)
 				return self.HomeIsHardwareDefined
-	SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT:float = 20
+
+	SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT:float = 20.0
 	def __setHomeIsHardwareDefined__(self, value:bool):
 		value = bool(value)
 		if value != self.HomeIsHardwareDefined:
 			self.State = ControllerState.Configuration
 			self.Write('HT' + ('2' if value else '1'))
-	def SetHomeIsHardwareDefined(self, value:bool, wait: bool= True):
+
+	def SetHomeIsHardwareDefined(self, value:bool, wait:bool=True):
 		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value])
 		thread.start()
 		if wait:
-			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)		
+			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
 			if thread.is_alive():
-				raise TimeoutError("Set HomeIsHardwareDefined took too long")		
+				raise TimeoutError("Set HomeIsHardwareDefined took too long")
+
 	State = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
 
-	def GoHome(self, wait=True):
+	@property
+	def IsHome(self) -> bool:
+		return True if self.Position == 0 else False
+
+	@property
+	def HomeSearchTimeout(self) -> float:
+		return float(match(FLOAT_PARAMETER_REGEX, self.Query('OT'))[1])
+	@HomeSearchTimeout.setter
+	def HomeSearchTimeout(self, value: float):
+		self.Write('PA' + str(float(value)))
+
+	def GoHome(self, wait:bool=True):
 		self.Write('OR')
 		if wait:
-			while(self.State == ControllerState.Moving):
-				sleep(0.1)
+			startTime = time()
+			while (time() - startTime) < self.HomeSearchTimeout:
+				if self.IsHome:
+					return True
+				else:
+					sleep(0.1)
+			raise TimeoutError("Going home took too long")
 
-	def GoTo(self, position, wait=True):
+	def GoTo(self, position:float, wait:bool=True):
 		self.Position = position
 		if wait:
-			while(self.State == ControllerState.Moving):
+			while (self.State == ControllerState.Moving):
 				sleep(0.1)
 
-	POSITION_REGEX = "([+-]?\d+(?:\.\d+)?).*"
+	GET_POSITION_RETRIES:int = 5
 	@property
-	def Position(self):
+	def Position(self) -> float:
 		"""The TP command returns the value of the current position.
 			This is the position where the positioner actually is according to his encoder value.
 			In MOVING state, this value always changes.
 			In READY state, this value should be equal or very close to the set point and target position.
 			Together with the TS command, the TP command helps evaluating whether a motion is completed"""
-		return float(match(Controller.POSITION_REGEX, self.Query('TP'))[1])
+		retriesLeft = Controller.GET_POSITION_RETRIES
+		while retriesLeft > -1:
+			try:
+				return float(match(FLOAT_PARAMETER_REGEX, self.Query('TP'))[0])
+			except TypeError:
+				pass
+			retriesLeft = retriesLeft - 1
+		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
 	@Position.setter
-	def Position(self, value):
-		if self.MinPosition <= value <= self.MaxPosition:
-			self.Write('PA' + str(float(value)))
-		else:
-			raise Exception('Position cannot be reached')
-
+	def Position(self, value:float, check:bool=False):
+		if check:
+			if not (self.MinPosition <= value <= self.MaxPosition):
+				raise Exception('Position cannot be reached')
+			
+		self.Write('PA' + str(float(value)))
+		
 	@property
 	def MinPosition(self) -> float:
-		return float(match(Controller.POSITION_REGEX, self.Query('SL'))[1])
+		retriesLeft = Controller.GET_POSITION_RETRIES
+		while retriesLeft > -1:
+			try:
+				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SL'))[0])
+			except TypeError:
+				pass
+			retriesLeft = retriesLeft - 1
+		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
 
 	@property
 	def MaxPosition(self) -> float:
-		return float(match(Controller.POSITION_REGEX, self.Query('SR'))[1])
+		retriesLeft = Controller.GET_POSITION_RETRIES
+		while retriesLeft > -1:
+			try:
+				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SR'))[0])
+			except TypeError:
+				pass
+			retriesLeft = retriesLeft - 1
+		raise TimeoutError(f"Error while getting maximal position on motor {self.Address}")
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
@@ -152,41 +197,67 @@ class Controller():
 			return state
 		except:
 			return ControllerState.Unknown
-	def __setState__(self, value:ControllerState, retry:bool=True):
-		while self.State != value:
-			match ControllerState(value):
-				case ControllerState.NotReferenced:
-					self.Reset()
 
-				case ControllerState.Configuration:
-					self.State = ControllerState.NotReferenced
-					self.Write('PW1')
+	def __setState__(self, value:ControllerState, retries:int=10, safeconduct:bool=False):
+		if not safeconduct:
+			self.__setStateLock__.acquire()
 
-				case ControllerState.Ready:
-					if self.State == ControllerState.Configuration:
-						self.Write('PW0')
-					if self.State == ControllerState.NotReferenced:
-						self.GoHome()
-					if self.State == ControllerState.Disable:
-						self.Write('MM1')
-					if (self.State == ControllerState.Jogging) or (self.State == ControllerState.Moving) or (self.State == ControllerState.Homing):
-						sleep(0.3)
+		retriesLeft = retries
+		while retriesLeft > -1:
+			retriesLeft = retriesLeft - 1
+			try:
+				match ControllerState(value):
+					case ControllerState.NotReferenced:
+						self.Reset()
 
-				case ControllerState.Disable:
-					self.Write('MM0')
+					case ControllerState.Configuration:
+						self.__setState__(ControllerState.NotReferenced, safeconduct=True)
+						self.Write('PW1')
 
-			sleep(0.1)
+					case ControllerState.Ready:
+						match self.State:
+							case ControllerState.Configuration:
+								self.Write('PW0')
+							case ControllerState.NotReferenced:
+								self.GoHome(wait=True)
+							case ControllerState.Disable:
+								self.Write('MM1')
+							case ControllerState.Jogging | ControllerState.Moving | ControllerState.Homing:
+								sleep(0.1)
 
-	SET_STATE_TIMEOUT = 40
-	def SetState(self, value:ControllerState, wait: bool= True):
+					case ControllerState.Disable:
+						while self.State != ControllerState.Disable:
+							self.Write('MM0')
+							sleep(0.2)
+
+				if self.State == value:
+					if not safeconduct:
+						self.__setStateLock__.release()
+					return True
+				else:
+					sleep(0.1)
+			except:
+				pass
+
+		if not safeconduct:
+			self.__setStateLock__.release()
+		raise TimeoutError(f"{value} cannot be set")
+
+	SET_STATE_TIMEOUT = 30
+	def SetState(self, value:ControllerState, wait:bool=True):
 		thread = Thread(target=self.__setState__, args=[value])
 		thread.start()
 		if wait:
-			thread.join(timeout=Controller.SET_STATE_TIMEOUT)		
-			if thread.is_alive():
-				raise TimeoutError("Set HomeIsHardwareDefined took too long")
+			try:
+				thread.join(timeout=Controller.SET_STATE_TIMEOUT)
+				if thread.is_alive():
+					raise TimeoutError(f"Set {value} took too long")
+			except Exception as e:
+				self.__setStateLock__.release()
+				raise e
+
 	State = property(GetState, SetState)
-					
+
 	@property
 	def Velocity(self) -> float:
 		return float(self.Query('VA'))
@@ -200,21 +271,21 @@ class Controller():
 	def Stage(self):
 		""""Get the current connected stage reference"""
 		return self.Query('ZX')
-	
+
 	def SetAutoStageCheck(self, value):
 		return self.Write('ZX' + ('3' if bool(value) else '1'))
-	
+
 	def UpdateStageSettings(self):
 		return self.Query('ZX2')
 
-	RESET_TIMEOUT = 5
-	def Reset(self, retries:int=5):
-		while retries >= 0:
+	RESET_TIMEOUT = 15
+	def Reset(self, retries:int=2):
+		while retries > -1:
 			self.Write('RS', retry=0)
 			startTime = time()
 			while time() - startTime < Controller.RESET_TIMEOUT:
 				if self.State == ControllerState.NotReferenced:
-					return
+					return True
 				else:
 					sleep(0.1)
 			retries = retries - 1
@@ -226,11 +297,13 @@ class MainController(Controller):
 		super().__init__(self, address)
 		self.__slaveControllers__ = list()
 		self.__receivedMessages__ = dict()
+		self.__serialPortLock__ = Lock()
+		self.__messageBuffer__ = Lock()
 
 	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
-			self.__serialPort__ = Serial(port=port, baudrate=56700, timeout=0.1, write_timeout=20)
+			self.__serialPort__ = Serial(port=port, baudrate=57600, timeout=0.1, write_timeout=5)
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 
@@ -238,7 +311,7 @@ class MainController(Controller):
 		if self.IsConnected:
 			super().Disconnect()
 			self.__serialPort__.close()
-	
+
 	@property
 	def IsAllConnected(self):
 		for controller in self.SlaveControllers:
@@ -250,17 +323,22 @@ class MainController(Controller):
 		self.__serialPort__.close()
 
 	def ReadMessages(self) -> dict[str, str]:
-		incommingMessages = self.__serialPort__.readall().decode(encoding='ascii', errors='ignore')
+		with self.__serialPortLock__:
+			incommingMessages = self.__serialPort__.read_all()
+		incommingMessages = incommingMessages.decode(encoding="ascii", errors="ignore")
 		incommingMessages = split('\r|\n', incommingMessages)
-		incommingMessages = [message for message in incommingMessages if message != '']
+		
 		for incommingMessage in incommingMessages:
 			correctMessage = match(QUERY_RESPONSE_REGEX, incommingMessage)
 			if correctMessage:
-				self.__receivedMessages__[correctMessage[1]] = correctMessage[2]
+				if correctMessage[2] != None:
+					with self.__messageBuffer__:
+						self.__receivedMessages__[correctMessage[1]] = correctMessage[2]
+
 		return self.__receivedMessages__
 
 	READ_TIMEOUT = 2
-	def Read(self, messagePrefix) -> str:
+	def Read(self, messagePrefix:str) -> str:
 		startTime = time()
 		while time() - startTime < MainController.READ_TIMEOUT:
 			try:
@@ -270,32 +348,37 @@ class MainController(Controller):
 				pass
 		raise TimeoutError("Read took too long")
 
-	def SuperWrite(self, value, retries:int=10):
+	def SuperWrite(self, value:str, retries:int=10):
 		retriesLeft = retries
-		while retriesLeft >= 0:
+		while retriesLeft > -1:
 			try:
-				return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
+				with self.__serialPortLock__:
+					return self.__serialPort__.write((value + '\r\n').encode(encoding='ascii'))
 			except SerialTimeoutException:
 				pass
 			sleep(0.1)
 			retriesLeft = retriesLeft - 1
-		if retries > 0:
-			raise TimeoutError("Message cannot be sent")
 
-	def SuperQuery(self, value, retries:int=10):
+		raise TimeoutError("Message cannot be sent")
+
+	def SuperQuery(self, value:str, retries:int=10):
+		retriesLeft = retries
+
 		# Messages processing
 		toBeReceivedMessagePrefix = match(QUERY_REGEX, value)[1]
 		if toBeReceivedMessagePrefix in self.__receivedMessages__:
-			del self.__receivedMessages__[toBeReceivedMessagePrefix] # Delete old response
-		
-		while retries >= 0:
+			with self.__messageBuffer__:
+				del self.__receivedMessages__[toBeReceivedMessagePrefix]  # Delete old response
+
+		while retriesLeft > -1:
 			self.SuperWrite(value)
 			try:
 				return self.Read(toBeReceivedMessagePrefix)
 			except TimeoutError:
 				pass
-		
-		raise QueryNotAnswered()
+			retriesLeft = retriesLeft - 1
+
+		raise TimeoutError("No response")
 
 	def Abort(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
@@ -304,7 +387,7 @@ class MainController(Controller):
 	def read_error(self):
 		"""Return the last error as a string."""
 		return self.SuperQuery('TB')
-		
+
 	def raise_error(self):
 		"""Check the last error message and raise a NewportError."""
 		err = self.read_error()
@@ -314,8 +397,8 @@ class MainController(Controller):
 	@property
 	def SlaveControllers(self):
 		return self.__slaveControllers__
-	
-	def NewController(self, address=1):
+
+	def NewController(self, address:int=1):
 		newController = Controller(self, address=address)
 		self.__slaveControllers__.append(newController)
 		return newController
