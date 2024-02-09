@@ -7,7 +7,7 @@ install_requires = [line.strip() for line in open("requirements.txt").readlines(
 
 setuptools.setup(
     name='pyNewportController',
-    version='1.0.158',
+    version='1.0.159',
     author='Benjamin SAGGIN',
     description='Testing installation of Package',
     long_description=long_description,

@@ -103,7 +103,7 @@ class Controller:
 			self.Write('HT' + ('2' if value else '1'))
 
 	def SetHomeIsHardwareDefined(self, value:bool, wait:bool=True):
-		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value], name=f"Set home is {'' if value else 'not'} hardware defined for controller {self.Address}")
+		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value], name=f"SetHomeIsHardwareDefined(Controller{self.Address}, {str(value)})")
 		thread.start()
 		if wait:
 			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
@@ -245,7 +245,7 @@ class Controller:
 
 	SET_STATE_TIMEOUT = 30
 	def SetState(self, value:ControllerState, wait:bool=True):
-		thread = Thread(target=self.__setState__, args=[value], name=f"Set {value} state on controller {self.Address}")
+		thread = Thread(target=self.__setState__, args=[value], name=f"SetState(Controller{self.Address}, {value.name})")
 		thread.start()
 		if wait:
 			try:
