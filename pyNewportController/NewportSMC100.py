@@ -84,7 +84,6 @@ class Controller:
 	def IsEnabled(self, value: bool):
 		self.Write('MM' + str(int(bool(value))))
 
-	@property
 	def GetHomeIsHardwareDefined(self) -> bool:
 		match self.Query('HT'):
 			case '1':
@@ -94,14 +93,13 @@ class Controller:
 			case _:
 				sleep(0.1)
 				return self.HomeIsHardwareDefined
-
+			
 	SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT:float = 20.0
 	def __setHomeIsHardwareDefined__(self, value:bool):
 		value = bool(value)
 		if value != self.HomeIsHardwareDefined:
 			self.State = ControllerState.Configuration
 			self.Write('HT' + ('2' if value else '1'))
-
 	def SetHomeIsHardwareDefined(self, value:bool, wait:bool=True):
 		thread = Thread(target=self.__setHomeIsHardwareDefined__, args=[value], name=f"SetHomeIsHardwareDefined(Controller{self.Address}, {str(value)})")
 		thread.start()
@@ -109,8 +107,8 @@ class Controller:
 			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
 			if thread.is_alive():
 				raise TimeoutError("Set HomeIsHardwareDefined took too long")
-
-	State = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
+			
+	HomeIsHardwareDefined = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
 
 	@property
 	def IsHome(self) -> bool:

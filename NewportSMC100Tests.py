@@ -1,10 +1,6 @@
 from pyNewportController.NewportSMC100 import MainController, ControllerState
 from numpy import arange, around
 from time import sleep
-import faulthandler
-
-if __name__ == "__main__":
-    faulthandler.enable()
 
 # Set variables
 xMin = 0 # mm
