@@ -50,16 +50,24 @@ class Controller:
 	@property
 	def MainController(self):
 		return self.__mainController__
-
-	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
+	
+	def __connect__(self, homeIsHardwareDefined:bool=True):
 		self.IsConnected = True
 		try:
 			# self.UpdateStageSettings() # Too long to execute
 			self.HomeIsHardwareDefined = homeIsHardwareDefined
-			self.SetState(ControllerState.Ready, wait=wait)
+			self.SetState(ControllerState.Ready, wait=True)
 			return True
 		except Exception as e:
 			self.IsConnected = False
+	CONECTION_TIMEOUT:float = 60
+	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
+		thread = Thread(target=self.__connect__, args=[homeIsHardwareDefined], name=f"Connect controller {self.Address}")
+		thread.start()
+		if wait:
+			thread.join(timeout=Controller.CONECTION_TIMEOUT)
+			if thread.is_alive():
+				raise TimeoutError(f"Connect controller {self.Address} took too long")
 
 	def Disconnect(self):
 		self.IsConnected = False
@@ -249,7 +257,7 @@ class Controller:
 			try:
 				thread.join(timeout=Controller.SET_STATE_TIMEOUT)
 				if thread.is_alive():
-					raise TimeoutError(f"Set {value} took too long")
+					raise TimeoutError(f"Set {value} on controller {self.Address} took too long")
 			except Exception as e:
 				self.__setStateLock__.release()
 				raise e
@@ -291,10 +299,12 @@ class Controller:
 
 
 class MainController(Controller):
+	__serialPort__:Serial = None
+
 	def __init__(self, address=1):
 		super().__init__(self, address)
-		self.__slaveControllers__ = list()
-		self.__receivedMessages__ = dict()
+		self.__slaveControllers__:list[Controller] = list()
+		self.__receivedMessages__:dict[str, str] = dict()
 		self.__serialPortLock__ = Lock()
 		self.__messageBuffer__ = Lock()
 
@@ -304,6 +314,24 @@ class MainController(Controller):
 			self.__serialPort__ = Serial(port=port, baudrate=57600, timeout=0.1, write_timeout=5)
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
+			
+	def ConnectAll(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
+		mainControllerThread = Thread(target=self.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {self.Address}")
+		controllerThreads = [mainControllerThread] + [Thread(target=controller.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {controller.Address}") for controller in self.SlaveControllers]
+		[controllerThread.start() for controllerThread in controllerThreads]
+		if wait:
+			controllerThreads[0].join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
+			if all([controllerThread.is_alive() for controllerThread in controllerThreads]):
+				raise TimeoutError("Connect all controllers took too long")
+	
+	def SetAllState(self, value:ControllerState, wait:bool=True):
+		mainControllerThread = Thread(target=self.SetState, args=[value, True], name=f"SetState(Controller{self.Address}, {value.name})")
+		controllerThreads = [mainControllerThread] + [Thread(target=controller.SetState, args=[value, True], name=f"SetState(Controller{controller.Address}, {value.name})") for controller in self.SlaveControllers]
+		[controllerThread.start() for controllerThread in controllerThreads]
+		if wait:
+			controllerThreads[0].join(timeout=Controller.SET_STATE_TIMEOUT)
+			if all([controllerThread.is_alive() for controllerThread in controllerThreads]):
+				raise TimeoutError(f"Set {value} on all controllers took too long")
 
 	def Disconnect(self):
 		if self.IsConnected:
@@ -393,7 +421,7 @@ class MainController(Controller):
 			raise Exception(err)
 
 	@property
-	def SlaveControllers(self):
+	def SlaveControllers(self) -> list[Controller]:
 		return self.__slaveControllers__
 
 	def NewController(self, address:int=1):
