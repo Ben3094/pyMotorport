@@ -39,7 +39,7 @@ class Controller:
 		self.Read = self.MainController.Read
 		self.read_error = self.MainController.read_error
 
-		self.IsConnected = False
+		self.IsConnected:bool = False
 
 		self.__setStateLock__ = Lock()
 
@@ -241,7 +241,7 @@ class Controller:
 						self.__setStateLock__.release()
 					return True
 				else:
-					sleep(0.1)
+					sleep(0.2)
 			except:
 				pass
 
@@ -315,23 +315,35 @@ class MainController(Controller):
 			self.__serialPort__.setDTR(False)
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 			
+	CONNECT_ALL_TIMEOUT:float = 30 # s
 	def ConnectAll(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
 		mainControllerThread = Thread(target=self.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {self.Address}")
-		controllerThreads = [mainControllerThread] + [Thread(target=controller.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {controller.Address}") for controller in self.SlaveControllers]
-		[controllerThread.start() for controllerThread in controllerThreads]
+		mainControllerThread.start()
+		controllerThreads = [mainControllerThread] + [Thread(target=controller.Connect, args=[homeIsHardwareDefined, True], name=f"Connect controller {controller.Address}") for controller in self.SlaveControllers]
+		sleep(0.1)
+		[controllerThread.start() for controllerThread in controllerThreads[1:]]
 		if wait:
-			controllerThreads[0].join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
-			if all([controllerThread.is_alive() for controllerThread in controllerThreads]):
-				raise TimeoutError("Connect all controllers took too long")
+			startTime = time()
+			while (time() - startTime) < MainController.CONNECT_ALL_TIMEOUT:
+				if all([not controllerThread.is_alive() for controllerThread in controllerThreads]):
+					return True
+				else:
+					sleep(0.1)
+			raise TimeoutError("Connect all controllers took too long")
 	
+	SET_ALL_STATE_TIMEOUT:float = 30 # s
 	def SetAllState(self, value:ControllerState, wait:bool=True):
 		mainControllerThread = Thread(target=self.SetState, args=[value, True], name=f"SetState(Controller{self.Address}, {value.name})")
 		controllerThreads = [mainControllerThread] + [Thread(target=controller.SetState, args=[value, True], name=f"SetState(Controller{controller.Address}, {value.name})") for controller in self.SlaveControllers]
 		[controllerThread.start() for controllerThread in controllerThreads]
 		if wait:
-			controllerThreads[0].join(timeout=Controller.SET_STATE_TIMEOUT)
-			if all([controllerThread.is_alive() for controllerThread in controllerThreads]):
-				raise TimeoutError(f"Set {value} on all controllers took too long")
+			startTime = time()
+			while (time() - startTime) < MainController.SET_ALL_STATE_TIMEOUT:
+				if all([not controllerThread.is_alive() for controllerThread in controllerThreads]):
+					return True
+				else:
+					sleep(0.1)
+			raise TimeoutError("Set {value} on all controllers took too long")
 
 	def Disconnect(self):
 		if self.IsConnected:
@@ -365,6 +377,9 @@ class MainController(Controller):
 
 	READ_TIMEOUT = 2
 	def Read(self, messagePrefix:str) -> str:
+		if not self.IsConnected:
+			raise Exception("The main controller is not connected")
+		
 		startTime = time()
 		while time() - startTime < MainController.READ_TIMEOUT:
 			try:
@@ -375,6 +390,9 @@ class MainController(Controller):
 		raise TimeoutError("Read took too long")
 
 	def SuperWrite(self, value:str, retries:int=10):
+		if not self.IsConnected:
+			raise Exception("The main controller is not connected")
+
 		retriesLeft = retries
 		while retriesLeft > -1:
 			try:

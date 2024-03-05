@@ -32,26 +32,17 @@ actuatorsCOMPort = 'COM5'
 zController = MainController()
 yController = zController.NewController(2)
 xController = zController.NewController(3)
-zController.Connect(actuatorsCOMPort, homeIsHardwareDefined=True, wait=False)
-xController.Connect(homeIsHardwareDefined=True, wait=False)
-yController.Connect(homeIsHardwareDefined=True, wait=False)
-while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
-	sleep(0.1)
-zController.SetState(ControllerState.Disable, wait=False)
-yController.SetState(ControllerState.Disable, wait=False)
-xController.SetState(ControllerState.Disable, wait=False)
-while xController.State != ControllerState.Disable or yController.State != ControllerState.Disable or zController.State != ControllerState.Disable:
-	sleep(0.1)
+zController.ConnectAll(actuatorsCOMPort, homeIsHardwareDefined=True, wait=True)
+
+zController.SetAllState(ControllerState.Disable, wait=True)
+
 zController.SetHomeIsHardwareDefined(False, wait=False)
 yController.SetHomeIsHardwareDefined(False, wait=False)
 xController.SetHomeIsHardwareDefined(False, wait=False)
 while xController.State != ControllerState.Configuration or yController.State != ControllerState.Configuration or zController.State != ControllerState.Configuration:
 	sleep(0.1)
-zController.SetState(ControllerState.Ready, wait=False)
-yController.SetState(ControllerState.Ready, wait=False)
-xController.SetState(ControllerState.Ready, wait=False)
-while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
-	sleep(0.1)
+
+zController.SetAllState(ControllerState.Ready, wait=True)
 
 yPositions = around(arange(yMin, yMax, yStep), yDecimal)
 zPositions = around(arange(zMin, zMax, zStep), zDecimal)
