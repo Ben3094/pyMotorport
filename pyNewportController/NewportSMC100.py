@@ -343,7 +343,7 @@ class MainController(Controller):
 					return True
 				else:
 					sleep(0.1)
-			raise TimeoutError("Set {value} on all controllers took too long")
+			raise TimeoutError(f"Set {value} on all controllers took too long")
 
 	def Disconnect(self):
 		if self.IsConnected:
