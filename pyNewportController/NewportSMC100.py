@@ -220,7 +220,7 @@ class Controller:
 					case ControllerState.Configuration:
 						self.__setState__(ControllerState.NotReferenced, safeconduct=True)
 						self.Write('PW1')
-						sleep(0.2)
+						sleep(0.3)
 
 					case ControllerState.Ready:
 						match self.State:
