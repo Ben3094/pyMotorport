@@ -236,7 +236,7 @@ class Controller:
 					case ControllerState.Disable:
 						while self.State != ControllerState.Disable:
 							self.Write('MM0')
-							sleep(0.2)
+							sleep(0.3)
 
 				if self.State == value:
 					if not safeconduct:
