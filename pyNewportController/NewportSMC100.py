@@ -215,7 +215,7 @@ class Controller:
 				match ControllerState(value):
 					case ControllerState.NotReferenced:
 						self.Reset()
-						sleep(0.2)
+						sleep(0.5)
 
 					case ControllerState.Configuration:
 						self.__setState__(ControllerState.NotReferenced, safeconduct=True)
