@@ -140,11 +140,32 @@ class Controller:
 					sleep(0.1)
 			raise TimeoutError("Going home took too long")
 
-	def GoTo(self, position:float, wait:bool=True):
-		self.Position = position
-		if wait:
-			while (self.State == ControllerState.Moving):
-				sleep(0.1)
+	def __getMotionTime__(self, movementAmplitude:float) -> float:
+		movementAmplitude = float(movementAmplitude)
+		motionTime = self.Query(f"PT{movementAmplitude}")
+		return float(motionTime)
+		
+	@property
+	def MinPosition(self) -> float:
+		retriesLeft = Controller.GET_POSITION_RETRIES
+		while retriesLeft > -1:
+			try:
+				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SL'))[0])
+			except TypeError:
+				pass
+			retriesLeft = retriesLeft - 1
+		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
+
+	@property
+	def MaxPosition(self) -> float:
+		retriesLeft = Controller.GET_POSITION_RETRIES
+		while retriesLeft > -1:
+			try:
+				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SR'))[0])
+			except TypeError:
+				pass
+			retriesLeft = retriesLeft - 1
+		raise TimeoutError(f"Error while getting maximal position on motor {self.Address}")
 
 	GET_POSITION_RETRIES:int = 5
 	@property
@@ -169,28 +190,14 @@ class Controller:
 				raise Exception('Position cannot be reached')
 			
 		self.Write('PA' + str(float(value)))
-		
-	@property
-	def MinPosition(self) -> float:
-		retriesLeft = Controller.GET_POSITION_RETRIES
-		while retriesLeft > -1:
-			try:
-				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SL'))[0])
-			except TypeError:
-				pass
-			retriesLeft = retriesLeft - 1
-		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
-
-	@property
-	def MaxPosition(self) -> float:
-		retriesLeft = Controller.GET_POSITION_RETRIES
-		while retriesLeft > -1:
-			try:
-				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SR'))[0])
-			except TypeError:
-				pass
-			retriesLeft = retriesLeft - 1
-		raise TimeoutError(f"Error while getting maximal position on motor {self.Address}")
+	
+	def GoTo(self, position:float, wait:bool=True):
+		startPosition = self.Position
+		self.Position = position
+		if wait:
+			sleep(self.__getMotionTime__(position - startPosition))
+			while (self.State == ControllerState.Moving):
+				sleep(0.1)
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
