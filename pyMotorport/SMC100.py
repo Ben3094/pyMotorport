@@ -4,6 +4,7 @@ from time import sleep, time
 from threading import Thread
 from multiprocessing import Lock
 from re import split, match
+from logging import info, warn, error
 
 ADDRESS_RANGE = range(32)
 QUERY_REGEX = "(\\d+[A-Z]{2})\\?"
@@ -193,11 +194,16 @@ class Controller:
 	
 	def GoTo(self, position:float, wait:bool=True):
 		startPosition = self.Position
+		startTime = time()
 		self.Position = position
 		if wait:
-			sleep(self.__getMotionTime__(position - startPosition))
-			while (self.State == ControllerState.Moving):
-				sleep(0.1)
+			estimatedTime = self.__getMotionTime__(position - startPosition)
+			sleep(estimatedTime)
+			if self.State == ControllerState.Moving:
+				while (self.State == ControllerState.Moving):
+					sleep(0.1)
+				elapsedTime = time() - startTime
+				info(f"Motor {self.Address} took {elapsedTime} seconds instead of {estimatedTime} seconds that was estimated")
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""
