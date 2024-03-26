@@ -1,10 +1,10 @@
-# pyNewportController library
+# pyMotorport library
 
 > **⚠️ Warning ⚠️**
 > 
-> Disclaimer: The author cannot be hold responsible for any damage caused by the use of pyNewportController
+> Disclaimer: The author cannot be hold responsible for any damage caused by the use of pyMotorport
 
-The pyNewportController API abstracts the Newport SMC100 (for the moment) and provides two main objects : the "Controller", and the "MainController" (python object, "child" of Controller).
+The pyMotorport API abstracts the Newport SMC100 (for the moment) and provides two main objects : the "Controller", and the "MainController" (python object, "child" of Controller).
 
 ## MainController object
 

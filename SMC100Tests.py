@@ -1,4 +1,4 @@
-from pyNewportController.NewportSMC100 import MainController, ControllerState
+from pyMotorport.SMC100 import MainController, ControllerState
 from numpy import arange, around
 from time import sleep
 

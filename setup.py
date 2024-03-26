@@ -6,17 +6,17 @@ with open("README.md", "r", encoding="utf-8") as fh:
 install_requires = [line.strip() for line in open("requirements.txt").readlines()]
 
 setuptools.setup(
-    name='pyNewportController',
-    version='1.0.192',
+    name='pyMotorport',
+    version='1.0.196',
     author='Benjamin SAGGIN',
-    description='Testing installation of Package',
+    description='A library to control Newport SMC100 controllers',
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url='https://github.com/Ben3094/pyNewportController',
+    url='https://github.com/Ben3094/pyMotorport',
     project_urls = {
-        "Bug Tracker": "https://github.com/Ben3094/pyNewportController/issues"
+        "Bug Tracker": "https://github.com/Ben3094/pyMotorport/issues"
     },
     license='MIT',
-    packages=['pyNewportController'],
+    packages=['pyMotorport'],
     install_requires=install_requires,
 )
