@@ -7,7 +7,7 @@ from re import split, match
 from logging import info, warn, error
 
 ADDRESS_RANGE = range(32)
-QUERY_REGEX = "(\\d+[A-Z]{2})\\?"
+QUERY_REGEX = "(\\d+[A-Z]{2})(.+)?\\?"
 QUERY_RESPONSE_REGEX = "(\\d+[A-Z]{2})(.+)?"
 FLOAT_PARAMETER_REGEX = "([+-]?\\d+(?:\\.\\d+)?).*"
 
@@ -143,8 +143,11 @@ class Controller:
 
 	def __getMotionTime__(self, movementAmplitude:float) -> float:
 		movementAmplitude = float(movementAmplitude)
-		motionTime = self.Query(f"PT{movementAmplitude}")
-		return float(motionTime)
+		if movementAmplitude == 0.0:
+			return 0
+		else:
+			motionTime = self.Query(f"PT{abs(movementAmplitude)}")
+			return float(motionTime)
 		
 	@property
 	def MinPosition(self) -> float:
@@ -182,8 +185,9 @@ class Controller:
 				return float(match(FLOAT_PARAMETER_REGEX, self.Query('TP'))[0])
 			except TypeError:
 				pass
+			sleep(0.1)
 			retriesLeft = retriesLeft - 1
-		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
+		raise TimeoutError(f"Error while getting position on motor {self.Address}")
 	@Position.setter
 	def Position(self, value:float, check:bool=False):
 		if check:
@@ -193,17 +197,14 @@ class Controller:
 		self.Write('PA' + str(float(value)))
 	
 	def GoTo(self, position:float, wait:bool=True):
-		startPosition = self.Position
-		startTime = time()
+		if wait:
+			startPosition = self.Position
+			estimatedTime = self.__getMotionTime__(position - startPosition)
 		self.Position = position
 		if wait:
-			estimatedTime = self.__getMotionTime__(position - startPosition)
 			sleep(estimatedTime)
-			if self.State == ControllerState.Moving:
-				while (self.State == ControllerState.Moving):
-					sleep(0.1)
-				elapsedTime = time() - startTime
-				info(f"Motor {self.Address} took {elapsedTime} seconds instead of {estimatedTime} seconds that was estimated")
+			while (self.State == ControllerState.Moving):
+				sleep(0.1)
 
 	def Stop(self):
 		"""The ST command is a safety feature. It stops a move in progress by decelerating the positioner immediately with the acceleration defined by the AC command until it stops."""

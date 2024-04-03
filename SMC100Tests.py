@@ -1,6 +1,9 @@
 from pyMotorport.SMC100 import MainController, ControllerState
 from numpy import arange, around
 from time import sleep
+from logging import basicConfig, INFO, StreamHandler
+from sys import stdout
+basicConfig(level=INFO, format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s', handlers=[StreamHandler(stream=stdout)])
 
 # Set variables
 xMin = 0 # mm
@@ -49,13 +52,12 @@ zPositions = around(arange(zMin, zMax, zStep), zDecimal)
 y = yController.Position
 z = zController.Position
 for x in around(arange(xMin, xMax, xStep), xDecimal):
-	xController.GoTo(x, wait=False)
+	xController.GoTo(x, wait=True)
 	isYCloserToMin = abs(y - yController.MinPosition) < abs(y - yController.MaxPosition)
 	for y in (yPositions if isYCloserToMin else yPositions[::-1]):
-		yController.GoTo(y, wait=False)
+		yController.GoTo(y, wait=True)
 		isZCloserToMin = abs(z - zController.MinPosition) < abs(z - zController.MaxPosition)
 		for z in (zPositions if isZCloserToMin else zPositions[::-1]):
-			zController.GoTo(z, wait=False)
-			while xController.State != ControllerState.Ready or yController.State != ControllerState.Ready or zController.State != ControllerState.Ready:
-				sleep(0.1)
+			zController.GoTo(z, wait=True)
+			sleep(0.1)
 print("Done")
