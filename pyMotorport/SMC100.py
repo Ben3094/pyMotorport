@@ -52,17 +52,18 @@ class Controller:
 	def MainController(self):
 		return self.__mainController__
 	
-	def __connect__(self, homeIsHardwareDefined:bool=True):
+	def __connect__(self, homeIsHardwareDefined:bool=None):
 		self.IsConnected = True
 		try:
 			# self.UpdateStageSettings() # Too long to execute
-			self.HomeIsHardwareDefined = homeIsHardwareDefined
+			if homeIsHardwareDefined != None:
+				self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=True)
 			return True
 		except Exception as e:
 			self.IsConnected = False
 	CONECTION_TIMEOUT:float = 60
-	def Connect(self, homeIsHardwareDefined:bool=True, wait:bool=True):
+	def Connect(self, homeIsHardwareDefined:bool=None, wait:bool=True):
 		thread = Thread(target=self.__connect__, args=[homeIsHardwareDefined], name=f"Connect controller {self.Address}")
 		thread.start()
 		if wait:
@@ -332,7 +333,7 @@ class MainController(Controller):
 			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 			
 	CONNECT_ALL_TIMEOUT:float = 30 # s
-	def ConnectAll(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
+	def ConnectAll(self, port, homeIsHardwareDefined:bool=None, wait:bool=True):
 		mainControllerThread = Thread(target=self.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {self.Address}")
 		mainControllerThread.start()
 		controllerThreads = [mainControllerThread] + [Thread(target=controller.Connect, args=[homeIsHardwareDefined, True], name=f"Connect controller {controller.Address}") for controller in self.SlaveControllers]
