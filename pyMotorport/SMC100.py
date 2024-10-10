@@ -350,7 +350,7 @@ class MainController(Controller):
 	
 	def IsAllState(self, value:ControllerState):
 		value = ControllerState(value)
-		return any([controller.State == value for controller in self.SlaveControllers])
+		return all([controller.State == value for controller in self.SlaveControllers])
 
 	SET_ALL_STATE_TIMEOUT:float = 30 # s
 	def SetAllState(self, value:ControllerState, wait:bool=True):
