@@ -348,6 +348,10 @@ class MainController(Controller):
 					sleep(0.1)
 			raise TimeoutError("Connect all controllers took too long")
 	
+	def IsAllState(self, value:ControllerState):
+		value = ControllerState(value)
+		return any([controller.State == value for controller in self.SlaveControllers])
+
 	SET_ALL_STATE_TIMEOUT:float = 30 # s
 	def SetAllState(self, value:ControllerState, wait:bool=True):
 		mainControllerThread = Thread(target=self.SetState, args=[value, True], name=f"SetState(Controller{self.Address}, {value.name})")
