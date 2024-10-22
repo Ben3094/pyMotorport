@@ -157,7 +157,7 @@ class Controller:
 			try:
 				return float(match(FLOAT_PARAMETER_REGEX, self.Query('SL'))[0])
 			except TypeError:
-				pass
+				sleep(0.1)
 			retriesLeft = retriesLeft - 1
 		raise TimeoutError(f"Error while getting minimal position on motor {self.Address}")
 
