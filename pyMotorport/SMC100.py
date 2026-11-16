@@ -1,3 +1,19 @@
+from typing import Generator
+from serial.tools.list_ports_common import ListPortInfo
+from serial.tools.list_ports import comports
+def DiscoverCompatibleMainController() -> Generator[ListPortInfo]:
+	for port in comports():
+		serialPort = None
+		try:
+			serialPort = Serial(port=port.name, baudrate=57600, timeout=0.1, write_timeout=5)
+			serialPort.write(('1VE?\r\n').encode(encoding='ascii'))
+			sleep(0.1)
+			if serialPort.read_all().decode(encoding='ascii').lstrip(' ').startswith('1VE SMC_PP'):
+				del serialPort
+				yield port
+		except:
+			pass
+
 from aenum import MultiValueEnum
 from serial import Serial, SerialTimeoutException
 from time import sleep, time
@@ -59,6 +75,7 @@ class Controller:
 			if homeIsHardwareDefined != None:
 				self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=True)
+			print(self.Address)
 			return True
 		except Exception as e:
 			self.IsConnected = False
@@ -116,7 +133,7 @@ class Controller:
 		if wait:
 			thread.join(timeout=Controller.SET_HOME_IS_HARDWARE_DEFINED_TIMEOUT)
 			if thread.is_alive():
-				raise TimeoutError("Set HomeIsHardwareDefined took too long")
+				raise TimeoutError(f"Set HomeIsHardwareDefined on controller {self.Address} took too long")
 			
 	HomeIsHardwareDefined = property(GetHomeIsHardwareDefined, SetHomeIsHardwareDefined)
 
@@ -325,16 +342,27 @@ class MainController(Controller):
 		self.__serialPortLock__ = Lock()
 		self.__messageBuffer__ = Lock()
 
-	def Connect(self, port, homeIsHardwareDefined:bool=True, wait:bool=True):
+	def __mainConnect__(self, port:str=None):
 		""":param port: Serial port connected to the main controller."""
 		if not self.IsConnected:
+			if port == None:
+				port = next(DiscoverCompatibleMainController(), None)
+				port = port.name if port != None else None
+			if port == None:
+				raise KeyError("No compatible main controller was found")
+		
 			self.__serialPort__ = Serial(port=port, baudrate=57600, timeout=0.1, write_timeout=5)
 			self.__serialPort__.setDTR(False)
-			super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
+			self.IsConnected = True
+
+	def Connect(self, port:str=None, homeIsHardwareDefined:bool=True, wait:bool=True):
+		self.__mainConnect__(port)
+		super().Connect(homeIsHardwareDefined=homeIsHardwareDefined, wait=wait)
 			
 	CONNECT_ALL_TIMEOUT:float = 30 # s
-	def ConnectAll(self, port, homeIsHardwareDefined:bool=None, wait:bool=True):
-		mainControllerThread = Thread(target=self.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect controller {self.Address}")
+	def ConnectAll(self, port:str=None, homeIsHardwareDefined:bool=None, wait:bool=True):
+		self.__mainConnect__(port)
+		mainControllerThread = Thread(target=self.Connect, args=[port, homeIsHardwareDefined, True], name=f"Connect main controller")
 		mainControllerThread.start()
 		controllerThreads = [mainControllerThread] + [Thread(target=controller.Connect, args=[homeIsHardwareDefined, True], name=f"Connect controller {controller.Address}") for controller in self.SlaveControllers]
 		sleep(0.1)

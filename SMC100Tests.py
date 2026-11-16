@@ -1,9 +1,11 @@
-from pyMotorport.SMC100 import MainController, ControllerState
+from pyMotorport.SMC100 import MainController, ControllerState, DiscoverCompatibleMainController
 from numpy import arange, around
 from time import sleep
 from logging import basicConfig, INFO, StreamHandler
 from sys import stdout
 basicConfig(level=INFO, format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s', handlers=[StreamHandler(stream=stdout)])
+
+print([port.name for port in DiscoverCompatibleMainController()])
 
 # Set variables
 xMin = 0 # mm
@@ -31,11 +33,12 @@ zDecimal = str(zStep)[::-1].find('.')
 zDecimal = 0 if zDecimal < 0 else zDecimal
 
 # Set actuators
-actuatorsCOMPort = 'COM5'
+actuatorsCOMPort = 'COM4'
 zController = MainController()
 yController = zController.NewController(2)
 xController = zController.NewController(3)
-zController.ConnectAll(actuatorsCOMPort, homeIsHardwareDefined=True, wait=True)
+zController.ConnectAll(homeIsHardwareDefined=True, wait=True)
+print(zController.Version)
 
 zController.SetAllState(ControllerState.Disable, wait=True)
 

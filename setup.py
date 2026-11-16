@@ -7,7 +7,7 @@ install_requires = [line.strip() for line in open("requirements.txt").readlines(
 
 setuptools.setup(
     name='pyMotorport',
-    version='1.1.1',
+    version='1.2.1',
     author='Benjamin SAGGIN',
     description='A library to control Newport SMC100 controllers',
     long_description=long_description,
