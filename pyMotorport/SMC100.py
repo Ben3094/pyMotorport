@@ -1,7 +1,7 @@
 from typing import Generator
 from serial.tools.list_ports_common import ListPortInfo
 from serial.tools.list_ports import comports
-def DiscoverCompatibleMainController() -> Generator[ListPortInfo]:
+def DiscoverCompatibleMainController() -> Generator[ListPortInfo, None, None]:
 	for port in comports():
 		serialPort = None
 		try:
@@ -75,7 +75,6 @@ class Controller:
 			if homeIsHardwareDefined != None:
 				self.HomeIsHardwareDefined = homeIsHardwareDefined
 			self.SetState(ControllerState.Ready, wait=True)
-			print(self.Address)
 			return True
 		except Exception as e:
 			self.IsConnected = False
